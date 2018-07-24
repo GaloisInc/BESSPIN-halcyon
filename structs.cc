@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstring>
 #include <iostream>
 
 #include <VeriConstVal.h>
@@ -158,10 +159,14 @@ void instr_t::parse_expression(VeriExpression* expr, uint8_t dst_set) {
         parse_expression(range->GetLeft(), dst_set);
         parse_expression(range->GetRight(), dst_set);
     } else if (auto sysfunc = dynamic_cast<VeriSystemFunctionCall*>(expr)) {
-        if (dst_set == DST_DEFS) {
-            def_set.insert(sysfunc->GetName());
-        } else if (dst_set == DST_USES) {
-            use_set.insert(sysfunc->GetName());
+        const char* func_name = sysfunc->GetName();
+
+        if (strcmp(func_name, "unsigned") != 0) {
+            if (dst_set == DST_DEFS) {
+                def_set.insert(func_name);
+            } else if (dst_set == DST_USES) {
+                use_set.insert(func_name);
+            }
         }
 
         uint32_t idx = 0;
