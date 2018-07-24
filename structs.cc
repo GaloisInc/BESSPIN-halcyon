@@ -665,6 +665,26 @@ void module_t::build_def_use_chains() {
         }
     }
 
+    id_set_t undef_ids;
+
+    for (id_map_t::iterator it = use_map.begin(); it != use_map.end(); it++) {
+        identifier_t id = it->first;
+        id_map_t::iterator def_it = def_map.find(id);
+
+        if (def_it == def_map.end()) {
+            undef_ids.insert(id);
+        }
+    }
+
     std::cerr << "found " << def_map.size() << " unique def(s) and " <<
-            use_map.size() << " use(s) in module " << name << "\n";
+            use_map.size() << " use(s), " << undef_ids.size() <<
+            " of which are undefined, in module " << name << "\n";
+
+    if (undef_ids.size() > 0) {
+        std::cerr << "undef id(s):\n";
+
+        for (identifier_t id : undef_ids) {
+            std::cerr << "  " << id << "\n";
+        }
+    }
 }
