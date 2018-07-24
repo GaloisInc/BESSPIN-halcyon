@@ -35,7 +35,8 @@ void process_module(VeriModule* module) {
         process_module_item(module_item, module_ds);
     }
 
-    module_ds.dump();
+    // module_ds.build_dominator_sets();
+    module_ds.build_def_use_chains();
 }
 
 void process_module_item(VeriModuleItem* module_item, module_t& module_ds) {
@@ -75,9 +76,14 @@ void process_module_item(VeriModuleItem* module_item, module_t& module_ds) {
     } else if (auto always = dynamic_cast<VeriAlwaysConstruct*>(module_item)) {
         bb_t* bb = module_ds.create_empty_basicblock("always");
         process_statement(module_ds, bb, always->GetStmt());
-    } else if (auto continuous_assign = dynamic_cast<VeriContinuousAssign*>(module_item)) {
+    } else if (auto continuous = dynamic_cast<VeriContinuousAssign*>(module_item)) {
         /// "assign" outside an "always" block.
-        module_ds.append_assignment(continuous_assign);
+        uint32_t idx = 0;
+        VeriNetRegAssign* net_reg_assign = nullptr;
+
+        FOREACH_ARRAY_ITEM(continuous->GetNetAssigns(), idx, net_reg_assign) {
+            module_ds.append(instr_t(net_reg_assign));
+        }
     } else if (auto initial = dynamic_cast<VeriInitialConstruct*>(module_item)) {
         bb_t* bb = module_ds.create_empty_basicblock("initial");
         process_statement(module_ds, bb, initial->GetStmt());
@@ -118,10 +124,10 @@ void process_statement(module_t& module, bb_t*& bb, VeriStatement* stmt) {
         balk(stmt, "unhandled node");
     } else if (auto assign_stmt = dynamic_cast<VeriAssign*>(stmt)) {
         /// "assign" inside an always block.
-        bb->append(assign_stmt);
+        bb->append(instr_t(assign_stmt));
     } else if (auto blocking_assign = dynamic_cast<VeriBlockingAssign*>(stmt)) {
         /// assignment using "=" without the assign keyword
-        bb->append(blocking_assign);
+        bb->append(instr_t(blocking_assign));
     } else if (auto case_stmt = dynamic_cast<VeriCaseStatement*>(stmt)) {
         /// "case", "casex", or "casez" statement
         VeriCaseItem* case_item = nullptr;
@@ -158,15 +164,15 @@ void process_statement(module_t& module, bb_t*& bb, VeriStatement* stmt) {
         bb = merge_bb;
     } else if (auto de_assign_stmt = dynamic_cast<VeriDeAssign*>(stmt)) {
         /// "deassign" keyword to undo the last blocking assignment.
-        bb->append(de_assign_stmt);
+        bb->append(instr_t(de_assign_stmt));
     } else if (auto delay_control = dynamic_cast<VeriDelayControlStatement*>(stmt)) {
         /// "#" followed by the delay followed by a statement.
         /// useful for tracking timing leakage.
-        bb->append(delay_control);
+        bb->append(instr_t(delay_control));
     } else if (auto disable_stmt = dynamic_cast<VeriDisable*>(stmt)) {
         /// "disable" keyword for jumping to a specific point in the code.
         /// useful for tracking timing leakage.
-        bb->append(disable_stmt);
+        bb->append(instr_t(disable_stmt));
     } else if (auto event_ctrl = dynamic_cast<VeriEventControlStatement*>(stmt)) {
         /// "@" expression for specifying when to trigger some actions.
         /// useful for tracking timing and non-timing leakage.
@@ -184,7 +190,7 @@ void process_statement(module_t& module, bb_t*& bb, VeriStatement* stmt) {
         // TODO: process_loop_stmt(loop);
     } else if (auto non_blocking_assign = dynamic_cast<VeriNonBlockingAssign*>(stmt)) {
         /// assignment using "<=" without the assign keyword
-        bb->append(non_blocking_assign);
+        bb->append(instr_t(non_blocking_assign));
     } else if (auto par_block = dynamic_cast<VeriParBlock*>(stmt)) {
         VeriStatement* __stmt = nullptr;
 
@@ -208,7 +214,7 @@ void process_statement(module_t& module, bb_t*& bb, VeriStatement* stmt) {
     } else if (auto wait = dynamic_cast<VeriWait*>(stmt)) {
         /// "wait" keyword for waiting for an expression to be true.
         /// useful for tracking timing leakage.
-        bb->append(wait);
+        bb->append(instr_t(wait));
     } else {
         balk(stmt, "unhandled node");
     }

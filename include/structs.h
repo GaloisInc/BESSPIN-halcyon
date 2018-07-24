@@ -12,16 +12,53 @@
 using namespace Verific;
 
 class bb_t;
+class instr_t;
 
 typedef VeriExpression* expr_t;
-typedef VeriStatement* instr_t;
-typedef VeriContinuousAssign* assign_t;
+typedef const char* identifier_t;
 
 typedef std::set<bb_t*> bb_set_t;
+typedef std::set<expr_t> expr_set_t;
+typedef std::set<identifier_t> id_set_t;
+typedef std::set<instr_t*> instr_ptr_set_t;
+
 typedef std::list<bb_t*> bb_list_t;
 typedef std::list<instr_t> instr_list_t;
-typedef std::list<assign_t> assign_list_t;
+
+typedef std::map<bb_t*, bb_t*> bb_map_t;
+typedef std::map<bb_t*, bb_set_t> bb_set_map_t;
 typedef std::map<std::string, uint32_t> bb_id_map_t;
+typedef std::map<identifier_t, instr_ptr_set_t> id_map_t;
+
+class instr_t {
+  private:
+    enum {
+        DST_DEFS = 0,
+        DST_USES
+    };
+
+    VeriStatement* instr;
+    VeriNetRegAssign* assign;
+    id_set_t def_set, use_set;
+
+  public:
+    explicit instr_t(VeriStatement*);
+    explicit instr_t(VeriNetRegAssign*);
+
+    void parse_stmt(VeriStatement*);
+    void parse_expression(VeriExpression*, uint8_t);
+
+    VeriStatement* get_stmt();
+    VeriNetRegAssign* get_assign();
+
+    id_set_t& defs();
+    id_set_t& uses();
+
+    bool operator==(const instr_t& ref) {
+        return instr == ref.instr && def_set == ref.def_set &&
+                use_set == ref.use_set;
+    }
+};
 
 class bb_t {
   private:
@@ -33,28 +70,34 @@ class bb_t {
     bb_t* successor_left;
     bb_t* successor_right;
 
-    bool add_predecessor(bb_t*&);
+    bool add_predecessor(bb_t*);
 
   public:
     explicit bb_t(const std::string&);
     ~bb_t();
 
     // disable copy constructor.
-    bb_t(const bb_t&);
+    bb_t(bb_t&);
 
-    instr_t last_instr();
-    bool exists(const instr_t&);
+    bool exists(instr_t&);
 
-    bool append(const expr_t&);
-    bool append(const instr_t&);
+    bool append(expr_t);
+    bool append(instr_t);
 
     bool set_left_successor(bb_t*&);
     bool set_right_successor(bb_t*&);
 
+    bb_set_t& preds();
+    instr_list_t& instrs();
+
     bb_t* left_successor();
     bb_t* right_successor();
 
-    void dump(uint32_t);
+    uint64_t pred_count();
+    uint64_t succ_count();
+
+    void dump();
+    const std::string& get_name();
 };
 
 class module_t {
@@ -63,7 +106,24 @@ class module_t {
 
     bb_id_map_t bb_id_map;
     bb_list_t basicblocks;
-    assign_list_t assignments;
+    bb_set_map_t dominators;
+    bb_set_map_t postdominators;
+
+    bb_map_t imm_dominator;
+    bb_map_t imm_postdominator;
+
+    id_map_t def_map;
+    id_map_t use_map;
+    instr_list_t instrs;
+
+    void build_dominator_sets(bb_set_t&);
+    void intersect(bb_set_t&, bb_set_t&);
+    bool update_dominators(bb_t*, bb_set_t&);
+    bool update_postdominators(bb_t*, bb_set_t&);
+    uint64_t build_reachable_set(bb_t*&, bb_set_t&);
+
+    bb_t* find_imm_dominator(bb_t*, bb_set_t&);
+    bb_t* find_imm_postdominator(bb_t*, bb_set_t&);
 
   public:
     explicit module_t(const std::string&);
@@ -73,7 +133,11 @@ class module_t {
     module_t(const module_t&);
 
     void dump();
-    bool append_assignment(assign_t&);
+
+    bool append(instr_t);
+    void build_def_use_chains();
+    void build_dominator_sets();
+
     bb_t* create_empty_basicblock(const char*);
 };
 
