@@ -89,11 +89,15 @@ void process_module_item(VeriModuleItem* module_item, module_t& module_ds) {
         process_statement(module_ds, bb, initial->GetStmt());
     } else if (auto data_decl = dynamic_cast<VeriDataDecl*>(module_item)) {
 #if 0
-        unsigned idx = 0;
-        VeriIdDef* decl_id = nullptr;
+        unsigned direction = data_decl->GetDir();
 
-        FOREACH_ARRAY_ITEM(data_decl->GetIds(), idx, decl_id) {
-            std::cerr << decl_id->GetName() << "\n";
+        if (data_decl->IsIODecl()) {
+            unsigned idx = 0;
+            VeriIdDef* decl_id = nullptr;
+
+            FOREACH_ARRAY_ITEM(data_decl->GetIds(), idx, decl_id) {
+                module_ds.add_connection(decl_id->GetName());
+            }
         }
 #endif
     } else if (auto def_param = dynamic_cast<VeriDefParam*>(module_item)) {
@@ -101,7 +105,7 @@ void process_module_item(VeriModuleItem* module_item, module_t& module_ds) {
     } else if (auto module = dynamic_cast<VeriModule*>(module_item)) {
         process_module(module);
     } else if (auto module_inst = dynamic_cast<VeriModuleInstantiation*>(module_item)) {
-        // TODO
+        module_ds.add_module_instance(module_inst);
     } else if (auto stmt = dynamic_cast<VeriStatement*>(module_item)) {
         bb_t* bb = module_ds.create_empty_basicblock(".dangling");
         process_statement(module_ds, bb, stmt);
@@ -129,13 +133,7 @@ void process_statement(module_t& module, bb_t*& bb, VeriStatement* stmt) {
         /// assignment using "=" without the assign keyword
         bb->append(instr_t(blocking_assign));
     } else if (auto case_stmt = dynamic_cast<VeriCaseStatement*>(stmt)) {
-        /// "case", "casex", or "casez" statement
-        VeriCaseItem* case_item = nullptr;
-
-        FOREACH_ARRAY_ITEM(case_stmt->GetCaseItems(), idx, case_item) {
-            VeriStatement* inner_statement = case_item->GetStmt();
-            // TODO: process_statement(inner_statement);
-        }
+        bb->append(instr_t(case_stmt));
     } else if (auto code_block = dynamic_cast<VeriCodeBlock*>(stmt)) {
         VeriStatement* __stmt = nullptr;
 
@@ -180,7 +178,7 @@ void process_statement(module_t& module, bb_t*& bb, VeriStatement* stmt) {
     } else if (auto event_trigger = dynamic_cast<VeriEventTrigger*>(stmt)) {
         /// "->" or "->>" expression to specify an event to trigger.
         /// useful for tracking timing and non-timing leakage.
-        // TODO: process_event_trigger_stmt(event_trigger);
+        bb->append(instr_t(event_trigger));
     } else if (auto force = dynamic_cast<VeriForce*>(stmt)) {
         /// used only during simulation (SystemVerilog?), ignore for now.
         // TODO: process_force_stmt(force);

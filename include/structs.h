@@ -11,16 +11,20 @@
 
 using namespace Verific;
 
-class bb_t;
 class instr_t;
+class bb_t;
+class module_t;
+class module_call_t;
 
 typedef VeriExpression* expr_t;
 typedef const char* identifier_t;
+typedef VeriModuleInstantiation* instance_t;
 
 typedef std::set<bb_t*> bb_set_t;
 typedef std::set<expr_t> expr_set_t;
 typedef std::set<identifier_t> id_set_t;
 typedef std::set<instr_t*> instr_ptr_set_t;
+typedef std::set<instance_t> instance_set_t;
 
 typedef std::list<bb_t*> bb_list_t;
 typedef std::list<instr_t> instr_list_t;
@@ -30,13 +34,32 @@ typedef std::map<bb_t*, bb_set_t> bb_set_map_t;
 typedef std::map<std::string, uint32_t> bb_id_map_t;
 typedef std::map<identifier_t, instr_ptr_set_t> id_map_t;
 
+typedef struct {
+    id_set_t use_set;
+
+    identifier_t module_name;
+    identifier_t remote_endpoint;
+} conn_t;
+
+typedef std::list<conn_t> conn_list_t;
+
+enum {
+    DST_DEFS = 0,
+    DST_USES,
+    DST_UNKNOWN
+};
+
+typedef struct {
+    identifier_t name;
+    uint8_t type;
+} id_desc_t;
+
+typedef std::list<id_desc_t> id_desc_list_t;
+
+void describe_expression(VeriExpression*, id_desc_list_t&, uint8_t);
+
 class instr_t {
   private:
-    enum {
-        DST_DEFS = 0,
-        DST_USES
-    };
-
     VeriStatement* instr;
     VeriNetRegAssign* assign;
     id_set_t def_set, use_set;
@@ -103,6 +126,8 @@ class bb_t {
 class module_t {
   private:
     std::string name;
+    conn_list_t conn_list;
+    instance_set_t instance_set;
 
     bb_id_map_t bb_id_map;
     bb_list_t basicblocks;
@@ -137,6 +162,7 @@ class module_t {
     bool append(instr_t);
     void build_def_use_chains();
     void build_dominator_sets();
+    void add_module_instance(instance_t);
 
     bb_t* create_empty_basicblock(const char*);
 };
