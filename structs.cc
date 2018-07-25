@@ -9,20 +9,8 @@
 
 #include "structs.h"
 
-instr_t::instr_t(VeriStatement* statement) {
-    instr = statement;
-    parse_stmt(instr);
-}
-
-instr_t::instr_t(VeriNetRegAssign* assignment) {
-    assign = assignment;
-
-    parse_expression(assign->GetLValExpr(), DST_DEFS);
-    parse_expression(assign->GetRValExpr(), DST_USES);
-}
-
-void describe_expression(VeriExpression* expr, id_desc_list_t& desc_list,
-        uint8_t type_hint) {
+void instr_t::describe_expression(VeriExpression* expr,
+        id_desc_list_t& desc_list, uint8_t type_hint) {
     if (dynamic_cast<VeriDefaultBinValue*>(expr) != nullptr ||
             dynamic_cast<VeriForeachOperator*>(expr) != nullptr ||
             dynamic_cast<VeriTransRangeList*>(expr) != nullptr ||
@@ -47,7 +35,7 @@ void describe_expression(VeriExpression* expr, id_desc_list_t& desc_list,
         describe_expression(bin_op->GetLeft(), desc_list, type_hint);
         describe_expression(bin_op->GetRight(), desc_list, type_hint);
     } else if (auto case_op = dynamic_cast<VeriCaseOperator*>(expr)) {
-        describe_expression(case_op->GetCondition(), desc_list, DST_USES);
+        describe_expression(case_op->GetCondition(), desc_list, STATE_USE);
 
         uint32_t idx = 0;
         VeriCaseOperatorItem* case_op_item = nullptr;
@@ -60,7 +48,7 @@ void describe_expression(VeriExpression* expr, id_desc_list_t& desc_list,
             VeriExpression* condition = nullptr;
 
             FOREACH_ARRAY_ITEM(case_op_item->GetConditions(), idx, condition) {
-                describe_expression(condition, desc_list, DST_USES);
+                describe_expression(condition, desc_list, STATE_USE);
             }
         }
     } else if (auto cast_op = dynamic_cast<VeriCast*>(expr)) {
@@ -92,30 +80,30 @@ void describe_expression(VeriExpression* expr, id_desc_list_t& desc_list,
             describe_expression(expression, desc_list, type_hint);
         }
     } else if (auto delay_ctrl = dynamic_cast<VeriDelayOrEventControl*>(expr)) {
-        describe_expression(delay_ctrl->GetDelayControl(), desc_list, DST_USES);
+        describe_expression(delay_ctrl->GetDelayControl(), desc_list, STATE_USE);
 
         uint32_t idx = 0;
         VeriExpression* expression = nullptr;
 
         FOREACH_ARRAY_ITEM(delay_ctrl->GetEventControl(), idx, expression) {
-            describe_expression(expression, desc_list, DST_USES);
+            describe_expression(expression, desc_list, STATE_USE);
         }
 
         describe_expression(delay_ctrl->GetRepeatEvent(), desc_list, type_hint);
     } else if (auto dot_name = dynamic_cast<VeriDotName*>(expr)) {
         describe_expression(dot_name->GetVarName(), desc_list, type_hint);
     } else if (auto event_expr = dynamic_cast<VeriEventExpression*>(expr)) {
-        describe_expression(event_expr->GetIffCondition(), desc_list, DST_USES);
+        describe_expression(event_expr->GetIffCondition(), desc_list, STATE_USE);
         describe_expression(event_expr->GetExpr(), desc_list, type_hint);
     } else if (auto indexed_expr = dynamic_cast<VeriIndexedExpr*>(expr)) {
         describe_expression(indexed_expr->GetPrefixExpr(), desc_list, type_hint);
-        describe_expression(indexed_expr->GetIndexExpr(), desc_list, DST_USES);
+        describe_expression(indexed_expr->GetIndexExpr(), desc_list, STATE_USE);
     } else if (auto min_typ_max = dynamic_cast<VeriMinTypMaxExpr*>(expr)) {
         describe_expression(min_typ_max->GetMinExpr(), desc_list, type_hint);
         describe_expression(min_typ_max->GetTypExpr(), desc_list, type_hint);
         describe_expression(min_typ_max->GetMaxExpr(), desc_list, type_hint);
     } else if (auto multi_concat = dynamic_cast<VeriMultiConcat*>(expr)) {
-        describe_expression(multi_concat->GetRepeat(), desc_list, DST_USES);
+        describe_expression(multi_concat->GetRepeat(), desc_list, STATE_USE);
 
         uint32_t idx = 0;
         VeriExpression* expression = nullptr;
@@ -133,7 +121,7 @@ void describe_expression(VeriExpression* expr, id_desc_list_t& desc_list,
         VeriExpression* expression = nullptr;
 
         FOREACH_ARRAY_ITEM(new_expr->GetArgs(), idx, expression) {
-            describe_expression(expression, desc_list, DST_USES);
+            describe_expression(expression, desc_list, STATE_USE);
         }
     } else if (auto path_pulse = dynamic_cast<VeriPathPulseVal*>(expr)) {
         describe_expression(path_pulse->GetRejectLimit(), desc_list, type_hint);
@@ -147,9 +135,9 @@ void describe_expression(VeriExpression* expr, id_desc_list_t& desc_list,
 
         describe_expression(port_conn->GetConnection(), desc_list, type_hint);
     } else if (auto question_colon = dynamic_cast<VeriQuestionColon*>(expr)) {
-        describe_expression(question_colon->GetIfExpr(), desc_list, DST_USES);
-        describe_expression(question_colon->GetThenExpr(), desc_list, DST_USES);
-        describe_expression(question_colon->GetElseExpr(), desc_list, DST_USES);
+        describe_expression(question_colon->GetIfExpr(), desc_list, STATE_USE);
+        describe_expression(question_colon->GetThenExpr(), desc_list, STATE_USE);
+        describe_expression(question_colon->GetElseExpr(), desc_list, STATE_USE);
     } else if (auto range = dynamic_cast<VeriRange*>(expr)) {
         describe_expression(range->GetLeft(), desc_list, type_hint);
         describe_expression(range->GetRight(), desc_list, type_hint);
@@ -165,10 +153,10 @@ void describe_expression(VeriExpression* expr, id_desc_list_t& desc_list,
         VeriExpression* expression = nullptr;
 
         FOREACH_ARRAY_ITEM(sysfunc->GetArgs(), idx, expression) {
-            describe_expression(expression, desc_list, DST_USES);
+            describe_expression(expression, desc_list, STATE_USE);
         }
     } else if (auto timing_check = dynamic_cast<VeriTimingCheckEvent*>(expr)) {
-        describe_expression(timing_check->GetCondition(), desc_list, DST_USES);
+        describe_expression(timing_check->GetCondition(), desc_list, STATE_USE);
         describe_expression(timing_check->GetTerminalDesc(), desc_list, type_hint);
     } else if (auto unary_op = dynamic_cast<VeriUnaryOperator*>(expr)) {
         describe_expression(unary_op->GetArg(), desc_list, type_hint);
@@ -186,27 +174,28 @@ void instr_t::parse_expression(VeriExpression* expr, uint8_t dst_set) {
     describe_expression(expr, desc_list, dst_set);
 
     for (id_desc_t desc : desc_list) {
-        if (desc.type == DST_DEFS) {
+        if (desc.type == STATE_DEF) {
             def_set.insert(desc.name);
-        } else if (desc.type == DST_USES) {
+        } else if (desc.type == STATE_USE) {
             use_set.insert(desc.name);
         } else {
+            std::cerr << "[u] " << desc.name << "\n";
             assert(false && "invalid destination!");
         }
     }
 }
 
-void instr_t::parse_stmt(VeriStatement* stmt) {
+void instr_t::parse_statement(VeriStatement* stmt) {
     assert(stmt != nullptr && "null statement!");
 
     if (auto assign = dynamic_cast<VeriAssign*>(stmt)) {
-        parse_expression(assign->GetAssign()->GetLValExpr(), DST_DEFS);
-        parse_expression(assign->GetAssign()->GetRValExpr(), DST_USES);
+        parse_expression(assign->GetAssign()->GetLValExpr(), STATE_DEF);
+        parse_expression(assign->GetAssign()->GetRValExpr(), STATE_USE);
     } else if (auto blocking = dynamic_cast<VeriBlockingAssign*>(stmt)) {
-        parse_expression(blocking->GetLVal(), DST_DEFS);
-        parse_expression(blocking->GetValue(), DST_USES);
+        parse_expression(blocking->GetLVal(), STATE_DEF);
+        parse_expression(blocking->GetValue(), STATE_USE);
     } else if (auto case_stmt = dynamic_cast<VeriCaseStatement*>(stmt)) {
-        parse_expression(case_stmt->GetCondition(), DST_UNKNOWN);
+        parse_expression(case_stmt->GetCondition(), STATE_USE);
 
         uint32_t idx = 0;
         VeriCaseItem* case_item = nullptr;
@@ -216,33 +205,29 @@ void instr_t::parse_stmt(VeriStatement* stmt) {
             VeriExpression* expression = nullptr;
 
             FOREACH_ARRAY_ITEM(case_item->GetConditions(), idx, expression) {
-                parse_expression(expression, DST_USES);
+                parse_expression(expression, STATE_USE);
             }
 
             VeriStatement* inner_statement = case_item->GetStmt();
-            parse_stmt(inner_statement);
+            parse_statement(inner_statement);
         }
     } else if (auto de_assign = dynamic_cast<VeriDeAssign*>(stmt)) {
-        parse_expression(de_assign->GetLVal(), DST_DEFS);
+        parse_expression(de_assign->GetLVal(), STATE_DEF);
     } else if (auto disable = dynamic_cast<VeriDisable*>(stmt)) {
         ;
     } else if (auto event_trigger = dynamic_cast<VeriEventTrigger*>(stmt)) {
-        parse_expression(event_trigger->GetControl(), DST_USES);
-        parse_expression(event_trigger->GetEventName(), DST_DEFS);
+        parse_expression(event_trigger->GetControl(), STATE_USE);
+        parse_expression(event_trigger->GetEventName(), STATE_DEF);
     } else if (auto nonblocking = dynamic_cast<VeriNonBlockingAssign*>(stmt)) {
-        parse_expression(nonblocking->GetLValue(), DST_DEFS);
-        parse_expression(nonblocking->GetValue(), DST_USES);
+        parse_expression(nonblocking->GetLValue(), STATE_DEF);
+        parse_expression(nonblocking->GetValue(), STATE_USE);
     } else if (auto wait = dynamic_cast<VeriWait*>(stmt)) {
-        parse_expression(wait->GetCondition(), DST_USES);
-        parse_stmt(wait->GetStmt());
+        parse_expression(wait->GetCondition(), STATE_USE);
+        parse_statement(wait->GetStmt());
     } else {
         stmt->PrettyPrintXml(std::cerr, 100);
         assert(false && "Unhandled instruction!");
     }
-}
-
-VeriStatement* instr_t::get_stmt() {
-    return instr;
 }
 
 id_set_t& instr_t::defs() {
@@ -251,6 +236,78 @@ id_set_t& instr_t::defs() {
 
 id_set_t& instr_t::uses() {
     return use_set;
+}
+
+stmt_t::stmt_t(VeriStatement* __statement) {
+    statement = __statement;
+    parse_statement(statement);
+}
+
+VeriStatement* stmt_t::get_statement() {
+    return statement;
+}
+
+bool stmt_t::operator==(const instr_t& reference) {
+    if (const stmt_t* ref = dynamic_cast<const stmt_t*>(&reference)) {
+        return statement == ref->statement;
+    }
+
+    return false;
+}
+
+assign_t::assign_t(VeriNetRegAssign* __assignment) {
+    assignment = __assignment;
+
+    parse_expression(assignment->GetLValExpr(), STATE_DEF);
+    parse_expression(assignment->GetRValExpr(), STATE_USE);
+}
+
+VeriNetRegAssign* assign_t::get_assignment() {
+    return assignment;
+}
+
+bool assign_t::operator==(const instr_t& reference) {
+    if (const assign_t* ref = dynamic_cast<const assign_t*>(&reference)) {
+        return assignment == ref->assignment;
+    }
+
+    return false;
+}
+
+invocation_t::invocation_t(VeriInstId* mod_inst, identifier_t mod_name) {
+    module_name = mod_name;
+    instantiation = mod_inst;
+
+    parse_invocation();
+}
+
+bool invocation_t::operator==(const instr_t& reference) {
+    if (const invocation_t* ref = dynamic_cast<const invocation_t*>(&reference)) {
+        return instantiation == ref->instantiation;
+    }
+
+    return false;
+}
+
+void invocation_t::parse_invocation() {
+    const char* instance_name = instantiation->InstName();
+
+    uint32_t idx = 0;
+    VeriPortConnect* connect = nullptr;
+
+    FOREACH_ARRAY_ITEM(instantiation->GetPortConnects(), idx, connect) {
+        id_desc_list_t desc_list;
+        describe_expression(connect->GetConnection(), desc_list, STATE_USE);
+
+        conn_t connection;
+        connection.remote_endpoint = connect->GetNamedFormal();
+
+        for (id_desc_t desc : desc_list) {
+            connection.id_set.insert(desc.name);
+        }
+
+        connections.push_back(connection);
+    }
 }
 
 bb_t::bb_t(const std::string& __name) {
@@ -264,6 +321,11 @@ bb_t::bb_t(const std::string& __name) {
 bb_t::~bb_t() {
     successor_left = nullptr;
     successor_right = nullptr;
+
+    for (instr_t* instr : instr_list) {
+        delete instr;
+        instr = nullptr;
+    }
 
     instr_list.clear();
     predecessors.clear();
@@ -287,7 +349,7 @@ bool bb_t::add_predecessor(bb_t* predecessor) {
     predecessors.insert(predecessor);
 }
 
-bool bb_t::exists(instr_t& instr) {
+bool bb_t::exists(instr_t* instr) {
     return std::find(instr_list.begin(), instr_list.end(), instr) !=
         instr_list.end();
 }
@@ -307,15 +369,19 @@ bool bb_t::append(expr_t expr) {
     return true;
 }
 
-bool bb_t::append(instr_t new_instr) {
+bool bb_t::append(instr_t* new_instr) {
     if (exists(new_instr) == true) {
         assert(false && "instruction already exists!");
         return false;
     }
 
-    if (dynamic_cast<VeriConditionalStatement*>(new_instr.get_stmt())) {
-        assert(false && "attempting to insert conditional statement!");
-        return false;
+    if (stmt_t* statement = dynamic_cast<stmt_t*>(new_instr)) {
+        VeriStatement* veri_statement = statement->get_statement();
+
+        if (dynamic_cast<VeriConditionalStatement*>(veri_statement)) {
+            assert(false && "attempting to insert conditional statement!");
+            return false;
+        }
     }
 
     instr_list.push_back(new_instr);
@@ -416,13 +482,13 @@ module_t::~module_t() {
     basicblocks.clear();
 }
 
-bb_t* module_t::create_empty_basicblock(const char* name) {
+bb_t* module_t::create_empty_basicblock(identifier_t name) {
     // create key if necessary.
     uint32_t counter = bb_id_map[name];
     bb_id_map[name] = counter + 1;
 
     char bb_name[1024];
-    snprintf(bb_name, sizeof(bb_name), "bb.%s.%u", name, counter);
+    snprintf(bb_name, sizeof(bb_name), "bb.%s.%u", name.c_str(), counter);
 
     bb_t* new_block = new bb_t(std::string(bb_name));
     basicblocks.push_back(new_block);
@@ -430,7 +496,7 @@ bb_t* module_t::create_empty_basicblock(const char* name) {
     return new_block;
 }
 
-bool module_t::append(instr_t instr) {
+bool module_t::append(instr_t* instr) {
     instrs.push_back(instr);
 }
 
@@ -674,28 +740,37 @@ void module_t::build_dominator_sets() {
 
 void module_t::build_def_use_chains() {
     def_map.clear();
+    use_map.clear();
 
     for (bb_t* bb : basicblocks) {
-        for (instr_t& instr : bb->instrs()) {
-            for (identifier_t id : instr.defs()) {
-                def_map[id].insert(&instr);
+        for (instr_t* instr : bb->instrs()) {
+            for (identifier_t id : instr->defs()) {
+                def_map[id].insert(instr);
             }
 
-            for (identifier_t id : instr.uses()) {
-                use_map[id].insert(&instr);
+            for (identifier_t id : instr->uses()) {
+                use_map[id].insert(instr);
             }
         }
     }
 
-    for (instr_t& instr : instrs) {
-        for (identifier_t id : instr.defs()) {
-            def_map[id].insert(&instr);
+    for (instr_t* instr : instrs) {
+        for (identifier_t id : instr->defs()) {
+            def_map[id].insert(instr);
         }
 
-        for (identifier_t id : instr.uses()) {
-            use_map[id].insert(&instr);
+        for (identifier_t id : instr->uses()) {
+            use_map[id].insert(instr);
         }
     }
+}
+
+void module_t::augment_chains_with_links(module_map_t& module_map) {
+}
+
+void module_t::resolve_module_links(module_map_t& module_map) {
+    build_def_use_chains();
+    augment_chains_with_links(module_map);
 
     id_set_t undef_ids;
 
@@ -723,31 +798,6 @@ void module_t::build_def_use_chains() {
 #endif
 }
 
-void module_t::add_module_instance(instance_t instance) {
-    const char* module_name = instance->GetModuleName();
-
-    uint32_t idx = 0;
-    VeriInstId* module_instance = nullptr;
-
-    FOREACH_ARRAY_ITEM(instance->GetInstances(), idx, module_instance) {
-        const char* instance_name = module_instance->InstName();
-
-        uint32_t idx = 0;
-        VeriPortConnect* connect = nullptr;
-
-        FOREACH_ARRAY_ITEM(module_instance->GetPortConnects(), idx, connect) {
-            id_desc_list_t desc_list;
-            describe_expression(connect->GetConnection(), desc_list, DST_USES);
-
-            conn_t connection;
-            connection.module_name = module_name;
-            connection.remote_endpoint = connect->GetNamedFormal();
-
-            for (id_desc_t desc : desc_list) {
-                connection.use_set.insert(desc.name);
-            }
-
-            conn_list.push_back(connection);
-        }
-    }
+void module_t::add_module_argument(identifier_t name, uint8_t state) {
+    arg_states.emplace(name, state);
 }

@@ -1,4 +1,4 @@
-OBJECTS = analyze.o structs.o
+OBJECTS = structs.o analyze.o
 
 VERIFIC_ROOT = ..
 
