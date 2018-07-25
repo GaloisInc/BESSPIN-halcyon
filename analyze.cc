@@ -33,25 +33,43 @@ void process_module(VeriModule* module) {
 
     module_t* module_ds = new module_t(module->GetName());
 
+    VeriIdDef* id_def = nullptr;
+    Array* params = module->GetParameters();
+
+    if (params != nullptr && params->Size() > 0) {
+        bb_t* bb_params = module_ds->create_empty_basicblock("params");
+
+        FOREACH_ARRAY_ITEM(params, idx, id_def) {
+            bb_params->append(new param_t(id_def->GetName()));
+        }
+    }
+
     FOREACH_ARRAY_ITEM(module->GetModuleItems(), idx, module_item) {
         process_module_item(module_item, module_ds);
     }
 
-    VeriAnsiPortDecl* decl = nullptr;
-    FOREACH_ARRAY_ITEM(module->GetPortConnects(), idx, decl) {
-        uint8_t state = STATE_UNKNOWN;
+    Array* port_connects = module->GetPortConnects();
 
-        switch (decl->GetDir()) {
-            case VERI_INPUT:    state = STATE_USE;          break;
-            case VERI_OUTPUT:   state = STATE_DEF;          break;
-            case VERI_INOUT:    state = STATE_DEF_AND_USE;  break;
-        }
+    if (port_connects != nullptr && port_connects->Size() > 0) {
+        VeriAnsiPortDecl* decl = nullptr;
+        bb_t* arg_bb = module_ds->create_empty_basicblock("args");
 
-        unsigned idx = 0;
-        VeriIdDef* arg_id = nullptr;
+        FOREACH_ARRAY_ITEM(port_connects, idx, decl) {
+            uint8_t state = STATE_UNKNOWN;
 
-        FOREACH_ARRAY_ITEM(decl->GetIds(), idx, arg_id) {
-            module_ds->add_module_argument(arg_id->GetName(), state);
+            switch (decl->GetDir()) {
+                case VERI_INPUT:    state = STATE_DEF;              break;
+                case VERI_OUTPUT:   state = STATE_USE;              break;
+                case VERI_INOUT:    state = STATE_DEF | STATE_USE;  break;
+            }
+
+            unsigned idx = 0;
+            VeriIdDef* arg_id = nullptr;
+
+            FOREACH_ARRAY_ITEM(decl->GetIds(), idx, arg_id) {
+                module_ds->add_arg(arg_id->GetName(), state);
+                arg_bb->append(new arg_t(arg_id->GetName(), state));
+            }
         }
     }
 
@@ -77,7 +95,6 @@ void process_module_item(VeriModuleItem* module_item, module_t* module_ds) {
     } else if (dynamic_cast<VeriCoverageOption*>(module_item) != nullptr ||
             dynamic_cast<VeriCoverageSpec*>(module_item) != nullptr ||
             dynamic_cast<VeriDefaultDisableIff*>(module_item) != nullptr ||
-            dynamic_cast<VeriFunctionDecl*>(module_item) != nullptr ||
             dynamic_cast<VeriGateInstantiation*>(module_item) != nullptr ||
             dynamic_cast<VeriGenerateBlock*>(module_item) != nullptr ||
             dynamic_cast<VeriGenerateCase*>(module_item) != nullptr ||
@@ -103,11 +120,28 @@ void process_module_item(VeriModuleItem* module_item, module_t* module_ds) {
         FOREACH_ARRAY_ITEM(continuous->GetNetAssigns(), idx, net_reg_assign) {
             module_ds->append(new assign_t(net_reg_assign));
         }
+    } else if (dynamic_cast<VeriFunctionDecl*>(module_item) != nullptr) {
+        // TODO
     } else if (auto initial = dynamic_cast<VeriInitialConstruct*>(module_item)) {
         bb_t* bb = module_ds->create_empty_basicblock("initial");
         process_statement(module_ds, bb, initial->GetStmt());
-    } else if (dynamic_cast<VeriDataDecl*>(module_item) != nullptr) {
-        // ignored because we don't care about declarations.
+    } else if (auto decl = dynamic_cast<VeriDataDecl*>(module_item)) {
+        unsigned idx = 0;
+        VeriIdDef* arg_id = nullptr;
+
+        if (decl->IsIODecl()) {
+            state_t state = STATE_UNKNOWN;
+
+            switch (decl->GetDir()) {
+                case VERI_INPUT:    state = STATE_DEF;              break;
+                case VERI_OUTPUT:   state = STATE_USE;              break;
+                case VERI_INOUT:    state = STATE_DEF | STATE_USE;  break;
+            }
+
+            FOREACH_ARRAY_ITEM(decl->GetIds(), idx, arg_id) {
+                module_ds->update_arg(arg_id->GetName(), state);
+            }
+        }
     } else if (auto def_param = dynamic_cast<VeriDefParam*>(module_item)) {
         // TODO
     } else if (auto module = dynamic_cast<VeriModule*>(module_item)) {
@@ -119,7 +153,7 @@ void process_module_item(VeriModuleItem* module_item, module_t* module_ds) {
         VeriInstId* module_instance = nullptr;
 
         FOREACH_ARRAY_ITEM(inst->GetInstances(), idx, module_instance) {
-            module_ds->append(new invocation_t(module_instance, module_name));
+            module_ds->append(new invoke_t(module_instance, module_name));
         }
     } else if (auto stmt = dynamic_cast<VeriStatement*>(module_item)) {
         bb_t* bb = module_ds->create_empty_basicblock(".dangling");
@@ -156,7 +190,7 @@ void process_statement(module_t* module, bb_t*& bb, VeriStatement* stmt) {
             process_statement(module, bb, __stmt);
         }
     } else if (auto cond_stmt = dynamic_cast<VeriConditionalStatement*>(stmt)) {
-        bb->append(cond_stmt->GetIfExpr());
+        bb->append(new cmpr_t(cond_stmt->GetIfExpr()));
         bb_t* merge_bb = module->create_empty_basicblock("merge");
 
         bb_t* then_bb = module->create_empty_basicblock("then");
@@ -239,7 +273,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    if (veri_file::Analyze(argv[1]) == false) {
+    if (veri_file::Analyze(argv[1], veri_file::SYSTEM_VERILOG) == false) {
         return 2;
     }
 
@@ -252,7 +286,11 @@ int main(int argc, char **argv) {
 
     for (auto it = module_map.begin(); it != module_map.end(); it++) {
         module_t* module_ds = it->second;
-        module_ds->resolve_module_links(module_map);
+
+        module_ds->resolve_links(module_map);
+        module_ds->build_def_use_chains();
+
+        module_ds->print_undef_ids();
     }
 
     for (auto it = module_map.begin(); it != module_map.end(); it++) {

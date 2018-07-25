@@ -16,14 +16,15 @@ class bb_t;
 class module_t;
 class module_call_t;
 
+typedef uint8_t state_t;
 typedef VeriExpression* expr_t;
 typedef std::string identifier_t;
 typedef VeriModuleInstantiation* instance_t;
 
 typedef std::set<bb_t*> bb_set_t;
 typedef std::set<expr_t> expr_set_t;
+typedef std::set<instr_t*> instr_set_t;
 typedef std::set<identifier_t> id_set_t;
-typedef std::set<instr_t*> instr_ptr_set_t;
 typedef std::set<instance_t> instance_set_t;
 
 typedef std::list<bb_t*> bb_list_t;
@@ -32,11 +33,12 @@ typedef std::list<instr_t*> instr_list_t;
 typedef std::map<bb_t*, bb_t*> bb_map_t;
 typedef std::map<bb_t*, bb_set_t> bb_set_map_t;
 typedef std::map<identifier_t, uint32_t> bb_id_map_t;
+typedef std::map<identifier_t, instr_set_t> id_map_t;
 typedef std::map<identifier_t, module_t*> module_map_t;
-typedef std::map<identifier_t, uint8_t> id_state_map_t;
-typedef std::map<identifier_t, instr_ptr_set_t> id_map_t;
+typedef std::map<identifier_t, state_t> id_state_map_t;
 
 typedef struct {
+    state_t state;
     id_set_t id_set;
     identifier_t remote_endpoint;
 } conn_t;
@@ -44,74 +46,123 @@ typedef struct {
 typedef std::list<conn_t> conn_list_t;
 
 enum {
-    STATE_DEF = 0,
-    STATE_USE,
-    STATE_DEF_AND_USE,
-    STATE_UNKNOWN
+    STATE_UNKNOWN   = 0,
+    STATE_DEF       = 1,
+    STATE_USE       = 2,
 };
 
 typedef struct {
     identifier_t name;
-    uint8_t type;
+    state_t type;
 } id_desc_t;
 
 typedef std::list<id_desc_t> id_desc_list_t;
 
 class instr_t {
-  private:
+  protected:
     id_set_t def_set, use_set;
 
-  protected:
     void parse_statement(VeriStatement*);
-    void parse_expression(VeriExpression*, uint8_t);
-    void describe_expression(VeriExpression*, id_desc_list_t&, uint8_t);
+    void parse_expression(VeriExpression*, state_t);
+    void describe_expression(VeriExpression*, id_desc_list_t&, state_t);
 
   public:
+    instr_t() { }
+    instr_t(const instr_t&) = delete;
+
+    ~instr_t() { }
+
     id_set_t& defs();
     id_set_t& uses();
 
+    virtual void dump() = 0;
     virtual bool operator==(const instr_t&) = 0;
+};
+
+class arg_t : public instr_t {
+  private:
+    state_t arg_state;
+    identifier_t arg_name;
+
+  public:
+    arg_t(const arg_t&) = delete;
+    explicit arg_t(identifier_t, state_t);
+
+    virtual void dump();
+    virtual bool operator==(const instr_t&);
+};
+
+class param_t : public instr_t {
+  private:
+    identifier_t param_name;
+
+  public:
+    param_t(const param_t&) = delete;
+    explicit param_t(identifier_t);
+
+    virtual void dump();
+    virtual bool operator==(const instr_t&);
 };
 
 class stmt_t : public instr_t {
   private:
-    VeriStatement* statement;
+    VeriStatement* stmt;
 
   public:
+    stmt_t(const stmt_t&) = delete;
     explicit stmt_t(VeriStatement*);
 
-    VeriStatement* get_statement();
+    virtual void dump();
+    VeriStatement* statement();
     virtual bool operator==(const instr_t&);
 };
 
 class assign_t : public instr_t {
   private:
-    VeriNetRegAssign* assignment;
+    VeriNetRegAssign* assign;
 
   public:
+    assign_t(const assign_t&) = delete;
     explicit assign_t(VeriNetRegAssign*);
 
-    VeriNetRegAssign* get_assignment();
+    virtual void dump();
+    VeriNetRegAssign* assignment();
     virtual bool operator==(const instr_t&);
 };
 
-class invocation_t : public instr_t {
+class invoke_t : public instr_t {
   private:
-    conn_list_t connections;
-    identifier_t module_name;
-    VeriInstId* instantiation;
+    conn_list_t conns;
+    VeriInstId* mod_inst;
+    identifier_t mod_name;
 
     void parse_invocation();
 
   public:
-    invocation_t(VeriInstId*, identifier_t);
+    invoke_t(VeriInstId*, identifier_t);
+
+    virtual void dump();
+    identifier_t module_name();
+    conn_list_t& connections();
+    virtual bool operator==(const instr_t&);
+};
+
+class cmpr_t : public instr_t {
+  private:
+    VeriExpression* cmpr;
+
+  public:
+    cmpr_t(const cmpr_t&) = delete;
+    explicit cmpr_t(VeriExpression*);
+
+    virtual void dump();
+    VeriExpression* comparison();
     virtual bool operator==(const instr_t&);
 };
 
 class bb_t {
   private:
     identifier_t name;
-    expr_t condition;
     bb_set_t predecessors;
     instr_list_t instr_list;
 
@@ -128,8 +179,6 @@ class bb_t {
     bb_t(bb_t&);
 
     bool exists(instr_t*);
-
-    bool append(expr_t);
     bool append(instr_t*);
 
     bool set_left_successor(bb_t*&);
@@ -145,12 +194,11 @@ class bb_t {
     uint64_t succ_count();
 
     void dump();
-    const identifier_t& get_name();
 };
 
 class module_t {
   private:
-    identifier_t name;
+    identifier_t mod_name;
     instance_set_t instance_set;
 
     bb_id_map_t bb_id_map;
@@ -163,15 +211,16 @@ class module_t {
 
     id_map_t def_map;
     id_map_t use_map;
-    instr_list_t instrs;
     id_state_map_t arg_states;
 
-    void build_def_use_chains();
+    state_t arg_state(identifier_t);
     void build_dominator_sets(bb_set_t&);
     void intersect(bb_set_t&, bb_set_t&);
     bool update_dominators(bb_t*, bb_set_t&);
+    bool process_connection(conn_t&, invoke_t*);
     bool update_postdominators(bb_t*, bb_set_t&);
     void augment_chains_with_links(module_map_t&);
+    void resolve_invoke(invoke_t*, module_map_t&);
     uint64_t build_reachable_set(bb_t*&, bb_set_t&);
 
     bb_t* find_imm_dominator(bb_t*, bb_set_t&);
@@ -185,11 +234,14 @@ class module_t {
     module_t(const module_t&);
 
     void dump();
-
+    identifier_t name();
     bool append(instr_t*);
+    void print_undef_ids();
+    void build_def_use_chains();
     void build_dominator_sets();
-    void resolve_module_links(module_map_t&);
-    void add_module_argument(identifier_t, uint8_t);
+    void resolve_links(module_map_t&);
+    void add_arg(identifier_t, state_t);
+    void update_arg(identifier_t, state_t);
 
     bb_t* create_empty_basicblock(identifier_t);
 };

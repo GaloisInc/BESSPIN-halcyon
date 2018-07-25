@@ -1,3 +1,4 @@
+CXX = g++
 OBJECTS = structs.o analyze.o
 
 VERIFIC_ROOT = ..
