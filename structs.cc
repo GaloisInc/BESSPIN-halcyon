@@ -6,8 +6,17 @@
 #include <VeriExpression.h>
 #include <VeriId.h>
 #include <VeriMisc.h>
+#include <VeriModule.h>
+#include <veri_tokens.h>
 
 #include "structs.h"
+
+void balk(VeriTreeNode* tree_node, const std::string& msg) {
+    std::cerr << msg << " [" << tree_node << "]:\n";
+    tree_node->PrettyPrintXml(std::cerr, 100);
+
+    assert(false && "unrecoverable error!");
+}
 
 void instr_t::describe_expression(VeriExpression* expr,
         id_desc_list_t& desc_list, uint8_t type_hint) {
@@ -540,8 +549,12 @@ void bb_t::dump() {
     }
 }
 
-module_t::module_t(const std::string& name) {
-    mod_name = name;
+module_t::module_t(VeriModule*& module) {
+    mod_name = module->GetName();
+
+    process_module_items(module->GetModuleItems());
+    process_module_params(module->GetParameters());
+    process_module_ports(module->GetPortConnects());
 }
 
 module_t::~module_t() {
@@ -937,4 +950,283 @@ uint8_t module_t::arg_state(identifier_t name) {
 
 void module_t::set_function() {
     is_function = true;
+}
+
+void module_t::process_module_items(Array* module_items) {
+    if (module_items == nullptr || module_items->Size() == 0) {
+        return;
+    }
+
+    unsigned idx = 0;
+    VeriModuleItem* module_item = nullptr;
+
+    FOREACH_ARRAY_ITEM(module_items, idx, module_item) {
+        process_module_item(module_item);
+    }
+}
+
+void module_t::process_module_params(Array* params) {
+    if (params == nullptr || params->Size() == 0) {
+        return;
+    }
+
+    unsigned idx = 0;
+    VeriIdDef* id_def = nullptr;
+
+    bb_t* bb_params = create_empty_basicblock("params");
+
+    FOREACH_ARRAY_ITEM(params, idx, id_def) {
+        bb_params->append(new param_t(id_def->GetName()));
+    }
+}
+
+void module_t::process_module_ports(Array* port_connects) {
+    if (port_connects == nullptr || port_connects->Size() == 0) {
+        return;
+    }
+
+    unsigned idx = 0;
+    VeriAnsiPortDecl* decl = nullptr;
+    bb_t* arg_bb = create_empty_basicblock("args");
+
+    FOREACH_ARRAY_ITEM(port_connects, idx, decl) {
+        uint8_t state = STATE_UNKNOWN;
+
+        switch (decl->GetDir()) {
+            case VERI_INPUT:    state = STATE_DEF;              break;
+            case VERI_OUTPUT:   state = STATE_USE;              break;
+            case VERI_INOUT:    state = STATE_DEF | STATE_USE;  break;
+        }
+
+        unsigned idx = 0;
+        VeriIdDef* arg_id = nullptr;
+
+        FOREACH_ARRAY_ITEM(decl->GetIds(), idx, arg_id) {
+            add_arg(arg_id->GetName(), state);
+            arg_bb->append(new arg_t(arg_id->GetName(), state));
+        }
+    }
+}
+
+void module_t::process_module_item(VeriModuleItem* module_item) {
+    if (dynamic_cast<VeriBindDirective*>(module_item) != nullptr ||
+            dynamic_cast<VeriBinDecl*>(module_item) != nullptr ||
+            dynamic_cast<VeriClass*>(module_item) != nullptr ||
+            dynamic_cast<VeriClockingDecl*>(module_item) != nullptr ||
+            dynamic_cast<VeriCovergroup*>(module_item) != nullptr ||
+            dynamic_cast<VeriExportDecl*>(module_item) != nullptr ||
+            dynamic_cast<VeriImportDecl*>(module_item) != nullptr ||
+            dynamic_cast<VeriLetDecl*>(module_item) != nullptr ||
+            dynamic_cast<VeriModport*>(module_item) != nullptr ||
+            dynamic_cast<VeriModportDecl*>(module_item) != nullptr ||
+            dynamic_cast<VeriNetAlias*>(module_item) != nullptr ||
+            dynamic_cast<VeriOperatorBinding*>(module_item) != nullptr ||
+            dynamic_cast<VeriPropertyDecl*>(module_item) != nullptr ||
+            dynamic_cast<VeriSequenceDecl*>(module_item) != nullptr) {
+        balk(module_item, "SystemVerilog node");
+    } else if (dynamic_cast<VeriCoverageOption*>(module_item) != nullptr ||
+            dynamic_cast<VeriCoverageSpec*>(module_item) != nullptr ||
+            dynamic_cast<VeriDefaultDisableIff*>(module_item) != nullptr ||
+            dynamic_cast<VeriGateInstantiation*>(module_item) != nullptr ||
+            dynamic_cast<VeriGenerateBlock*>(module_item) != nullptr ||
+            dynamic_cast<VeriGenerateCase*>(module_item) != nullptr ||
+            dynamic_cast<VeriGenerateConditional*>(module_item) != nullptr ||
+            dynamic_cast<VeriGenerateConstruct*>(module_item) != nullptr ||
+            dynamic_cast<VeriGenerateFor*>(module_item) != nullptr ||
+            dynamic_cast<VeriPathDecl*>(module_item) != nullptr ||
+            dynamic_cast<VeriPulseControl*>(module_item) != nullptr ||
+            dynamic_cast<VeriSpecifyBlock*>(module_item) != nullptr ||
+            dynamic_cast<VeriSystemTimingCheck*>(module_item) != nullptr ||
+            dynamic_cast<VeriTable*>(module_item) != nullptr ||
+            dynamic_cast<VeriTaskDecl*>(module_item) != nullptr ||
+            dynamic_cast<VeriTimeUnit*>(module_item) != nullptr) {
+        balk(module_item, "unhandled node");
+    } else if (auto always = dynamic_cast<VeriAlwaysConstruct*>(module_item)) {
+        bb_t* bb = create_empty_basicblock("always");
+        process_statement(bb, always->GetStmt());
+    } else if (auto continuous = dynamic_cast<VeriContinuousAssign*>(module_item)) {
+        /// "assign" outside an "always" block.
+        uint32_t idx = 0;
+        VeriNetRegAssign* net_reg_assign = nullptr;
+
+        FOREACH_ARRAY_ITEM(continuous->GetNetAssigns(), idx, net_reg_assign) {
+            append(new assign_t(net_reg_assign));
+        }
+    } else if (auto func_decl = dynamic_cast<VeriFunctionDecl*>(module_item)) {
+    /*
+        // Treat this just like any other module.
+        VeriName* veri_name = func_decl->GetSubprogramName();
+        identifier_t function_name = veri_name->GetName();
+
+        module_t* module_ds = new module_t(function_name);
+        module_ds->set_function();
+
+        bb_t* arg_bb = module_ds->create_empty_basicblock("args");
+
+        uint32_t idx = 0;
+        VeriAnsiPortDecl* decl = nullptr;
+
+        FOREACH_ARRAY_ITEM(func_decl->GetAnsiIOList(), idx, decl) {
+            uint8_t state = STATE_UNKNOWN;
+
+            switch (decl->GetDir()) {
+                case VERI_INPUT:    state = STATE_DEF;              break;
+                case VERI_OUTPUT:   state = STATE_USE;              break;
+                case VERI_INOUT:    state = STATE_DEF | STATE_USE;  break;
+            }
+
+            unsigned idx = 0;
+            VeriIdDef* arg_id = nullptr;
+
+            FOREACH_ARRAY_ITEM(decl->GetIds(), idx, arg_id) {
+                module_ds->add_arg(arg_id->GetName(), state);
+                arg_bb->append(new arg_t(arg_id->GetName(), state));
+            }
+        }
+
+        module_map.emplace(function_name, module_ds);
+    */
+    } else if (auto initial = dynamic_cast<VeriInitialConstruct*>(module_item)) {
+        bb_t* bb = create_empty_basicblock("initial");
+        process_statement(bb, initial->GetStmt());
+    } else if (auto decl = dynamic_cast<VeriDataDecl*>(module_item)) {
+        unsigned idx = 0;
+        VeriIdDef* arg_id = nullptr;
+
+        if (decl->IsIODecl()) {
+            state_t state = STATE_UNKNOWN;
+
+            switch (decl->GetDir()) {
+                case VERI_INPUT:    state = STATE_DEF;              break;
+                case VERI_OUTPUT:   state = STATE_USE;              break;
+                case VERI_INOUT:    state = STATE_DEF | STATE_USE;  break;
+            }
+
+            FOREACH_ARRAY_ITEM(decl->GetIds(), idx, arg_id) {
+                update_arg(arg_id->GetName(), state);
+            }
+        }
+    } else if (auto def_param = dynamic_cast<VeriDefParam*>(module_item)) {
+        // TODO
+    } else if (auto module = dynamic_cast<VeriModule*>(module_item)) {
+        // TOOD: process_module(module);
+    } else if (auto inst = dynamic_cast<VeriModuleInstantiation*>(module_item)) {
+        const char* module_name = inst->GetModuleName();
+
+        uint32_t idx = 0;
+        VeriInstId* module_instance = nullptr;
+
+        FOREACH_ARRAY_ITEM(inst->GetInstances(), idx, module_instance) {
+            append(new invoke_t(module_instance, module_name));
+        }
+    } else if (auto stmt = dynamic_cast<VeriStatement*>(module_item)) {
+        bb_t* bb = create_empty_basicblock(".dangling");
+        process_statement(bb, stmt);
+    } else {
+        balk(module_item, "unhandled node");
+    }
+}
+
+void module_t::process_statement(bb_t*& bb, VeriStatement* stmt) {
+    unsigned idx = 0;
+
+    if (dynamic_cast<VeriAssertion*>(stmt) != nullptr ||
+            dynamic_cast<VeriJumpStatement*>(stmt) != nullptr ||
+            dynamic_cast<VeriRandsequence*>(stmt) != nullptr ||
+            dynamic_cast<VeriSequentialInstantiation*>(stmt) != nullptr ||
+            dynamic_cast<VeriWaitOrder*>(stmt) != nullptr ||
+            dynamic_cast<VeriWithStmt*>(stmt) != nullptr) {
+        balk(stmt, "SystemVerilog node");
+    } else if (dynamic_cast<VeriNullStatement*>(stmt)) {
+        balk(stmt, "unhandled node");
+    } else if (auto assign_stmt = dynamic_cast<VeriAssign*>(stmt)) {
+        /// "assign" inside an always block.
+        bb->append(new stmt_t(assign_stmt));
+    } else if (auto blocking_assign = dynamic_cast<VeriBlockingAssign*>(stmt)) {
+        /// assignment using "=" without the assign keyword
+        bb->append(new stmt_t(blocking_assign));
+    } else if (auto case_stmt = dynamic_cast<VeriCaseStatement*>(stmt)) {
+        bb->append(new stmt_t(case_stmt));
+    } else if (auto code_block = dynamic_cast<VeriCodeBlock*>(stmt)) {
+        VeriStatement* __stmt = nullptr;
+
+        FOREACH_ARRAY_ITEM(code_block->GetStatements(), idx, __stmt) {
+            process_statement(bb, __stmt);
+        }
+    } else if (auto cond_stmt = dynamic_cast<VeriConditionalStatement*>(stmt)) {
+        bb->append(new cmpr_t(cond_stmt->GetIfExpr()));
+        bb_t* merge_bb = create_empty_basicblock("merge");
+
+        bb_t* then_bb = create_empty_basicblock("then");
+        bb->set_left_successor(then_bb);
+
+        process_statement(then_bb, stmt->GetThenStmt());
+        then_bb->set_left_successor(merge_bb);
+
+        VeriStatement* inner_statement = stmt->GetElseStmt();
+        if (inner_statement != nullptr) {
+            bb_t* else_bb = create_empty_basicblock("else");
+            bb->set_right_successor(else_bb);
+
+            process_statement(else_bb, inner_statement);
+            else_bb->set_left_successor(merge_bb);
+        }
+
+        bb = merge_bb;
+    } else if (auto de_assign_stmt = dynamic_cast<VeriDeAssign*>(stmt)) {
+        /// "deassign" keyword to undo the last blocking assignment.
+        bb->append(new stmt_t(de_assign_stmt));
+    } else if (auto delay_control = dynamic_cast<VeriDelayControlStatement*>(stmt)) {
+        /// "#" followed by the delay followed by a statement.
+        /// useful for tracking timing leakage.
+        bb->append(new stmt_t(delay_control));
+    } else if (auto disable_stmt = dynamic_cast<VeriDisable*>(stmt)) {
+        /// "disable" keyword for jumping to a specific point in the code.
+        /// useful for tracking timing leakage.
+        bb->append(new stmt_t(disable_stmt));
+    } else if (auto event_ctrl = dynamic_cast<VeriEventControlStatement*>(stmt)) {
+        /// "@" expression for specifying when to trigger some actions.
+        /// useful for tracking timing and non-timing leakage.
+        process_statement(bb, event_ctrl->GetStmt());
+    } else if (auto event_trigger = dynamic_cast<VeriEventTrigger*>(stmt)) {
+        /// "->" or "->>" expression to specify an event to trigger.
+        /// useful for tracking timing and non-timing leakage.
+        bb->append(new stmt_t(event_trigger));
+    } else if (auto force = dynamic_cast<VeriForce*>(stmt)) {
+        /// used only during simulation (SystemVerilog?), ignore for now.
+        // TODO
+    } else if (auto gen_var_assign = dynamic_cast<VeriGenVarAssign*>(stmt)) {
+        // TODO
+    } else if (auto loop = dynamic_cast<VeriLoop*>(stmt)) {
+        // TODO
+    } else if (auto non_blocking_assign = dynamic_cast<VeriNonBlockingAssign*>(stmt)) {
+        /// assignment using "<=" without the assign keyword
+        bb->append(new stmt_t(non_blocking_assign));
+    } else if (auto par_block = dynamic_cast<VeriParBlock*>(stmt)) {
+        VeriStatement* __stmt = nullptr;
+
+        FOREACH_ARRAY_ITEM(par_block->GetStatements(), idx, __stmt) {
+            if (__stmt != nullptr) {
+                process_statement(bb, __stmt);
+            }
+        }
+    } else if (auto seq_block = dynamic_cast<VeriSeqBlock*>(stmt)) {
+        VeriStatement* __stmt = nullptr;
+
+        FOREACH_ARRAY_ITEM(seq_block->GetStatements(), idx, __stmt) {
+            if (__stmt != nullptr) {
+                process_statement(bb, __stmt);
+            }
+        }
+    } else if (auto sys_task = dynamic_cast<VeriSystemTaskEnable*>(stmt)) {
+        /// used for generating inputs and output, ignore.
+    } else if (auto task = dynamic_cast<VeriTaskEnable*>(stmt)) {
+        /// similar to system tasks, ignore?
+    } else if (auto wait = dynamic_cast<VeriWait*>(stmt)) {
+        /// "wait" keyword for waiting for an expression to be true.
+        /// useful for tracking timing leakage.
+        bb->append(new stmt_t(wait));
+    } else {
+        balk(stmt, "unhandled node");
+    }
 }

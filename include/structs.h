@@ -224,11 +224,17 @@ class module_t {
     void resolve_invoke(invoke_t*, module_map_t&);
     uint64_t build_reachable_set(bb_t*&, bb_set_t&);
 
+    void process_module_items(Array*);
+    void process_module_ports(Array*);
+    void process_module_params(Array*);
+    void process_module_item(VeriModuleItem*);
+    void process_statement(bb_t*&, VeriStatement*);
+
     bb_t* find_imm_dominator(bb_t*, bb_set_t&);
     bb_t* find_imm_postdominator(bb_t*, bb_set_t&);
 
   public:
-    explicit module_t(const identifier_t&);
+    explicit module_t(VeriModule*&);
     ~module_t();
 
     // disable copy constructor.
