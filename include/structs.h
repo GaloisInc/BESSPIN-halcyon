@@ -59,6 +59,9 @@ typedef struct {
 typedef std::list<id_desc_t> id_desc_list_t;
 
 class instr_t {
+  private:
+    bb_t* containing_bb;
+
   protected:
     id_set_t def_set, use_set;
 
@@ -67,11 +70,12 @@ class instr_t {
     void describe_expression(VeriExpression*, id_desc_list_t&, state_t);
 
   public:
-    instr_t() { }
+    instr_t(bb_t*);
     instr_t(const instr_t&) = delete;
 
-    ~instr_t() { }
+    ~instr_t();
 
+    bb_t* parent();
     id_set_t& defs();
     id_set_t& uses();
 
@@ -86,7 +90,7 @@ class arg_t : public instr_t {
 
   public:
     arg_t(const arg_t&) = delete;
-    explicit arg_t(identifier_t, state_t);
+    explicit arg_t(bb_t*, identifier_t, state_t);
 
     virtual void dump();
     virtual bool operator==(const instr_t&);
@@ -98,7 +102,7 @@ class param_t : public instr_t {
 
   public:
     param_t(const param_t&) = delete;
-    explicit param_t(identifier_t);
+    explicit param_t(bb_t*, identifier_t);
 
     virtual void dump();
     virtual bool operator==(const instr_t&);
@@ -110,7 +114,7 @@ class stmt_t : public instr_t {
 
   public:
     stmt_t(const stmt_t&) = delete;
-    explicit stmt_t(VeriStatement*);
+    explicit stmt_t(bb_t*, VeriStatement*);
 
     virtual void dump();
     VeriStatement* statement();
@@ -123,7 +127,7 @@ class assign_t : public instr_t {
 
   public:
     assign_t(const assign_t&) = delete;
-    explicit assign_t(VeriNetRegAssign*);
+    explicit assign_t(bb_t*, VeriNetRegAssign*);
 
     virtual void dump();
     VeriNetRegAssign* assignment();
@@ -139,7 +143,7 @@ class invoke_t : public instr_t {
     void parse_invocation();
 
   public:
-    invoke_t(VeriInstId*, identifier_t);
+    explicit invoke_t(bb_t*, VeriInstId*, identifier_t);
 
     virtual void dump();
     identifier_t module_name();
@@ -153,7 +157,7 @@ class cmpr_t : public instr_t {
 
   public:
     cmpr_t(const cmpr_t&) = delete;
-    explicit cmpr_t(VeriExpression*);
+    explicit cmpr_t(bb_t*, VeriExpression*);
 
     virtual void dump();
     VeriExpression* comparison();
@@ -162,9 +166,11 @@ class cmpr_t : public instr_t {
 
 class bb_t {
   private:
+    bb_t* entry_bb;
     identifier_t name;
     bb_set_t predecessors;
     instr_list_t instr_list;
+    module_t* containing_module;
 
     bb_t* successor_left;
     bb_t* successor_right;
@@ -172,7 +178,7 @@ class bb_t {
     bool add_predecessor(bb_t*);
 
   public:
-    explicit bb_t(const identifier_t&);
+    explicit bb_t(module_t*, const identifier_t&);
     ~bb_t();
 
     // disable copy constructor.
@@ -180,13 +186,13 @@ class bb_t {
 
     bool exists(instr_t*);
     bool append(instr_t*);
-
     bool set_left_successor(bb_t*&);
     bool set_right_successor(bb_t*&);
 
     bb_set_t& preds();
     instr_list_t& instrs();
 
+    bb_t* entry_block();
     bb_t* left_successor();
     bb_t* right_successor();
 
@@ -194,6 +200,7 @@ class bb_t {
     uint64_t succ_count();
 
     void dump();
+    void set_entry_block(bb_t*);
 };
 
 class module_t {
@@ -205,6 +212,7 @@ class module_t {
     bb_id_map_t bb_id_map;
     bb_list_t basicblocks;
     bb_set_map_t dominators;
+    bb_set_t top_level_blocks;
     bb_set_map_t postdominators;
 
     bb_map_t imm_dominator;
@@ -215,13 +223,11 @@ class module_t {
     id_state_map_t arg_states;
 
     state_t arg_state(identifier_t);
-    void build_dominator_sets(bb_set_t&);
     void intersect(bb_set_t&, bb_set_t&);
     bool update_dominators(bb_t*, bb_set_t&);
     bool process_connection(conn_t&, invoke_t*);
     bool update_postdominators(bb_t*, bb_set_t&);
     void augment_chains_with_links(module_map_t&);
-    void resolve_invoke(invoke_t*, module_map_t&);
     uint64_t build_reachable_set(bb_t*&, bb_set_t&);
 
     void process_module_items(Array*);
@@ -230,8 +236,16 @@ class module_t {
     void process_module_item(VeriModuleItem*);
     void process_statement(bb_t*&, VeriStatement*);
 
+    bb_t* create_empty_bb(identifier_t);
     bb_t* find_imm_dominator(bb_t*, bb_set_t&);
     bb_t* find_imm_postdominator(bb_t*, bb_set_t&);
+
+    void set_function();
+    void print_undef_ids();
+    void add_arg(identifier_t, state_t);
+    void build_dominator_sets(bb_set_t&);
+    void update_arg(identifier_t, state_t);
+    void resolve_invoke(invoke_t*, module_map_t&);
 
   public:
     explicit module_t(VeriModule*&);
@@ -241,17 +255,17 @@ class module_t {
     module_t(const module_t&);
 
     void dump();
-    identifier_t name();
-    void set_function();
-    bool append(instr_t*);
-    void print_undef_ids();
     void build_def_use_chains();
     void build_dominator_sets();
     void resolve_links(module_map_t&);
-    void add_arg(identifier_t, state_t);
-    void update_arg(identifier_t, state_t);
+    void remove_from_top_level_blocks(bb_t*);
 
-    bb_t* create_empty_basicblock(identifier_t);
+    identifier_t name();
+    instr_set_t& def_instrs(identifier_t);
+    instr_set_t& use_instrs(identifier_t);
+
+    bool exists(bb_t*);
+    bool postdominates(bb_t* source, bb_t* sink);
 };
 
 #endif  // STRUCTS_H_

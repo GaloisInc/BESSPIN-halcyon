@@ -18,6 +18,14 @@ void balk(VeriTreeNode* tree_node, const std::string& msg) {
     assert(false && "unrecoverable error!");
 }
 
+instr_t::instr_t(bb_t* parent) {
+    containing_bb = parent;
+}
+
+instr_t::~instr_t() {
+    containing_bb = nullptr;
+}
+
 void instr_t::describe_expression(VeriExpression* expr,
         id_desc_list_t& desc_list, uint8_t type_hint) {
     if (dynamic_cast<VeriDefaultBinValue*>(expr) != nullptr ||
@@ -255,6 +263,10 @@ void instr_t::parse_statement(VeriStatement* stmt) {
     }
 }
 
+bb_t* instr_t::parent() {
+    return containing_bb;
+}
+
 id_set_t& instr_t::defs() {
     return def_set;
 }
@@ -263,7 +275,7 @@ id_set_t& instr_t::uses() {
     return use_set;
 }
 
-arg_t::arg_t(identifier_t name, state_t state) {
+arg_t::arg_t(bb_t* parent, identifier_t name, state_t state) : instr_t(parent) {
     arg_name = name;
     arg_state = state;
 
@@ -288,7 +300,7 @@ bool arg_t::operator==(const instr_t& reference) {
     return false;
 }
 
-param_t::param_t(identifier_t name) {
+param_t::param_t(bb_t* parent, identifier_t name) : instr_t(parent)  {
     param_name = name;
     def_set.insert(param_name);
 }
@@ -305,7 +317,7 @@ bool param_t::operator==(const instr_t& reference) {
     return false;
 }
 
-stmt_t::stmt_t(VeriStatement* __stmt) {
+stmt_t::stmt_t(bb_t* parent, VeriStatement* __stmt) : instr_t(parent)  {
     stmt = __stmt;
     parse_statement(stmt);
 }
@@ -326,9 +338,9 @@ bool stmt_t::operator==(const instr_t& reference) {
     return false;
 }
 
-assign_t::assign_t(VeriNetRegAssign* __assign) {
+assign_t::assign_t(bb_t* parent, VeriNetRegAssign* __assign)
+        : instr_t(parent)  {
     assign = __assign;
-
     parse_expression(assign->GetLValExpr(), STATE_DEF);
     parse_expression(assign->GetRValExpr(), STATE_USE);
 }
@@ -349,9 +361,10 @@ bool assign_t::operator==(const instr_t& reference) {
     return false;
 }
 
-invoke_t::invoke_t(VeriInstId* __mod_inst, identifier_t __mod_name) {
-    mod_inst = __mod_inst;
-    mod_name = __mod_name;
+invoke_t::invoke_t(bb_t* parent, VeriInstId* __inst, identifier_t __name)
+        : instr_t(parent)  {
+    mod_inst = __inst;
+    mod_name = __name;
 
     parse_invocation();
 }
@@ -398,7 +411,7 @@ conn_list_t& invoke_t::connections() {
     return conns;
 }
 
-cmpr_t::cmpr_t(VeriExpression* __cmpr) {
+cmpr_t::cmpr_t(bb_t* parent, VeriExpression* __cmpr) : instr_t(parent) {
     cmpr = __cmpr;
     parse_expression(cmpr, STATE_USE);
 }
@@ -419,8 +432,10 @@ bool cmpr_t::operator==(const instr_t& reference) {
     return false;
 }
 
-bb_t::bb_t(const std::string& __name) {
+bb_t::bb_t(module_t* parent, const std::string& __name) {
     name = __name;
+    entry_bb = nullptr;
+    containing_module = parent;
 
     successor_left = nullptr;
     successor_right = nullptr;
@@ -483,6 +498,9 @@ bool bb_t::set_left_successor(bb_t*& successor) {
     successor_left = successor;
     successor->add_predecessor(this);
 
+    // The successor block is no longer a top-level basic block.
+    containing_module->remove_from_top_level_blocks(successor);
+
     return true;
 }
 
@@ -499,6 +517,9 @@ bool bb_t::set_right_successor(bb_t*& successor) {
 
     successor_right = successor;
     successor->add_predecessor(this);
+
+    // The successor block is no longer a top-level basic block.
+    containing_module->remove_from_top_level_blocks(successor);
 
     return true;
 }
@@ -549,6 +570,14 @@ void bb_t::dump() {
     }
 }
 
+bb_t* bb_t::entry_block() {
+    return entry_bb;
+}
+
+void bb_t::set_entry_block(bb_t* block) {
+    entry_bb = block;
+}
+
 module_t::module_t(VeriModule*& module) {
     mod_name = module->GetName();
 
@@ -570,7 +599,7 @@ identifier_t module_t::name() {
     return mod_name;
 }
 
-bb_t* module_t::create_empty_basicblock(identifier_t name) {
+bb_t* module_t::create_empty_bb(identifier_t name) {
     // create key if necessary.
     uint32_t counter = bb_id_map[name];
     bb_id_map[name] = counter + 1;
@@ -578,15 +607,14 @@ bb_t* module_t::create_empty_basicblock(identifier_t name) {
     char bb_name[1024];
     snprintf(bb_name, sizeof(bb_name), "bb.%s.%u", name.c_str(), counter);
 
-    bb_t* new_block = new bb_t(std::string(bb_name));
+    bb_t* new_block = new bb_t(this, std::string(bb_name));
     basicblocks.push_back(new_block);
 
-    return new_block;
-}
+    // Mark this as a top-level block for now,
+    // but fix it if we make it a successor block.
+    top_level_blocks.insert(new_block);
 
-bool module_t::append(instr_t* instr) {
-    bb_t* new_bb = create_empty_basicblock("lone");
-    return new_bb->append(instr);
+    return new_block;
 }
 
 void module_t::dump() {
@@ -601,6 +629,7 @@ uint64_t module_t::build_reachable_set(bb_t*& start_bb, bb_set_t& reachable) {
 
     workset.insert(start_bb);
     reachable.insert(start_bb);
+    start_bb->set_entry_block(start_bb);
 
     do {
         bb_set_t::iterator it = workset.begin();
@@ -613,11 +642,13 @@ uint64_t module_t::build_reachable_set(bb_t*& start_bb, bb_set_t& reachable) {
         if (left != nullptr && reachable.find(left) == reachable.end()) {
             workset.insert(left);
             reachable.insert(left);
+            left->set_entry_block(start_bb);
         }
 
         if (right != nullptr && reachable.find(right) == reachable.end()) {
             workset.insert(right);
             reachable.insert(right);
+            right->set_entry_block(start_bb);
         }
     } while (workset.size() > 0);
 
@@ -817,13 +848,12 @@ void module_t::build_dominator_sets() {
     // TODO: For simplicity, we use the O(V^2) algorithm.  The Lengauer-Tarjan
     // Dominator Tree Algorithm will likely improve the analysis performance.
 
-    for (bb_t* bb : basicblocks) {
-        if (bb->pred_count() == 0) {
-            bb_set_t reachable;
+    for (bb_t* bb : top_level_blocks) {
+        assert(bb->pred_count() == 0 && "not a top-level block!");
 
-            build_reachable_set(bb, reachable);
-            build_dominator_sets(reachable);
-        }
+        bb_set_t reachable;
+        build_reachable_set(bb, reachable);
+        build_dominator_sets(reachable);
     }
 }
 
@@ -973,10 +1003,10 @@ void module_t::process_module_params(Array* params) {
     unsigned idx = 0;
     VeriIdDef* id_def = nullptr;
 
-    bb_t* bb_params = create_empty_basicblock("params");
+    bb_t* bb_params = create_empty_bb("params");
 
     FOREACH_ARRAY_ITEM(params, idx, id_def) {
-        bb_params->append(new param_t(id_def->GetName()));
+        bb_params->append(new param_t(bb_params, id_def->GetName()));
     }
 }
 
@@ -987,7 +1017,7 @@ void module_t::process_module_ports(Array* port_connects) {
 
     unsigned idx = 0;
     VeriAnsiPortDecl* decl = nullptr;
-    bb_t* arg_bb = create_empty_basicblock("args");
+    bb_t* arg_bb = create_empty_bb("args");
 
     FOREACH_ARRAY_ITEM(port_connects, idx, decl) {
         uint8_t state = STATE_UNKNOWN;
@@ -1003,7 +1033,7 @@ void module_t::process_module_ports(Array* port_connects) {
 
         FOREACH_ARRAY_ITEM(decl->GetIds(), idx, arg_id) {
             add_arg(arg_id->GetName(), state);
-            arg_bb->append(new arg_t(arg_id->GetName(), state));
+            arg_bb->append(new arg_t(arg_bb, arg_id->GetName(), state));
         }
     }
 }
@@ -1042,15 +1072,17 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
             dynamic_cast<VeriTimeUnit*>(module_item) != nullptr) {
         balk(module_item, "unhandled node");
     } else if (auto always = dynamic_cast<VeriAlwaysConstruct*>(module_item)) {
-        bb_t* bb = create_empty_basicblock("always");
+        bb_t* bb = create_empty_bb("always");
         process_statement(bb, always->GetStmt());
     } else if (auto continuous = dynamic_cast<VeriContinuousAssign*>(module_item)) {
+        bb_t* bb = create_empty_bb("cassign");
+
         /// "assign" outside an "always" block.
         uint32_t idx = 0;
         VeriNetRegAssign* net_reg_assign = nullptr;
 
         FOREACH_ARRAY_ITEM(continuous->GetNetAssigns(), idx, net_reg_assign) {
-            append(new assign_t(net_reg_assign));
+            bb->append(new assign_t(bb, net_reg_assign));
         }
     } else if (auto func_decl = dynamic_cast<VeriFunctionDecl*>(module_item)) {
     /*
@@ -1061,7 +1093,7 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
         module_t* module_ds = new module_t(function_name);
         module_ds->set_function();
 
-        bb_t* arg_bb = module_ds->create_empty_basicblock("args");
+        bb_t* arg_bb = module_ds->create_empty_bb("args");
 
         uint32_t idx = 0;
         VeriAnsiPortDecl* decl = nullptr;
@@ -1080,14 +1112,14 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
 
             FOREACH_ARRAY_ITEM(decl->GetIds(), idx, arg_id) {
                 module_ds->add_arg(arg_id->GetName(), state);
-                arg_bb->append(new arg_t(arg_id->GetName(), state));
+                arg_bb->append(new arg_t(arg_bb, arg_id->GetName(), state));
             }
         }
 
         module_map.emplace(function_name, module_ds);
     */
     } else if (auto initial = dynamic_cast<VeriInitialConstruct*>(module_item)) {
-        bb_t* bb = create_empty_basicblock("initial");
+        bb_t* bb = create_empty_bb("initial");
         process_statement(bb, initial->GetStmt());
     } else if (auto decl = dynamic_cast<VeriDataDecl*>(module_item)) {
         unsigned idx = 0;
@@ -1111,16 +1143,17 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
     } else if (auto module = dynamic_cast<VeriModule*>(module_item)) {
         // TOOD: process_module(module);
     } else if (auto inst = dynamic_cast<VeriModuleInstantiation*>(module_item)) {
-        const char* module_name = inst->GetModuleName();
+        bb_t* bb = create_empty_bb("initial");
 
         uint32_t idx = 0;
         VeriInstId* module_instance = nullptr;
+        const char* module_name = inst->GetModuleName();
 
         FOREACH_ARRAY_ITEM(inst->GetInstances(), idx, module_instance) {
-            append(new invoke_t(module_instance, module_name));
+            bb->append(new invoke_t(bb, module_instance, module_name));
         }
     } else if (auto stmt = dynamic_cast<VeriStatement*>(module_item)) {
-        bb_t* bb = create_empty_basicblock(".dangling");
+        bb_t* bb = create_empty_bb(".dangling");
         process_statement(bb, stmt);
     } else {
         balk(module_item, "unhandled node");
@@ -1141,12 +1174,12 @@ void module_t::process_statement(bb_t*& bb, VeriStatement* stmt) {
         balk(stmt, "unhandled node");
     } else if (auto assign_stmt = dynamic_cast<VeriAssign*>(stmt)) {
         /// "assign" inside an always block.
-        bb->append(new stmt_t(assign_stmt));
+        bb->append(new stmt_t(bb, assign_stmt));
     } else if (auto blocking_assign = dynamic_cast<VeriBlockingAssign*>(stmt)) {
         /// assignment using "=" without the assign keyword
-        bb->append(new stmt_t(blocking_assign));
+        bb->append(new stmt_t(bb, blocking_assign));
     } else if (auto case_stmt = dynamic_cast<VeriCaseStatement*>(stmt)) {
-        bb->append(new stmt_t(case_stmt));
+        bb->append(new stmt_t(bb, case_stmt));
     } else if (auto code_block = dynamic_cast<VeriCodeBlock*>(stmt)) {
         VeriStatement* __stmt = nullptr;
 
@@ -1154,10 +1187,10 @@ void module_t::process_statement(bb_t*& bb, VeriStatement* stmt) {
             process_statement(bb, __stmt);
         }
     } else if (auto cond_stmt = dynamic_cast<VeriConditionalStatement*>(stmt)) {
-        bb->append(new cmpr_t(cond_stmt->GetIfExpr()));
-        bb_t* merge_bb = create_empty_basicblock("merge");
+        bb->append(new cmpr_t(bb, cond_stmt->GetIfExpr()));
+        bb_t* merge_bb = create_empty_bb("merge");
 
-        bb_t* then_bb = create_empty_basicblock("then");
+        bb_t* then_bb = create_empty_bb("then");
         bb->set_left_successor(then_bb);
 
         process_statement(then_bb, stmt->GetThenStmt());
@@ -1165,7 +1198,7 @@ void module_t::process_statement(bb_t*& bb, VeriStatement* stmt) {
 
         VeriStatement* inner_statement = stmt->GetElseStmt();
         if (inner_statement != nullptr) {
-            bb_t* else_bb = create_empty_basicblock("else");
+            bb_t* else_bb = create_empty_bb("else");
             bb->set_right_successor(else_bb);
 
             process_statement(else_bb, inner_statement);
@@ -1175,15 +1208,15 @@ void module_t::process_statement(bb_t*& bb, VeriStatement* stmt) {
         bb = merge_bb;
     } else if (auto de_assign_stmt = dynamic_cast<VeriDeAssign*>(stmt)) {
         /// "deassign" keyword to undo the last blocking assignment.
-        bb->append(new stmt_t(de_assign_stmt));
+        bb->append(new stmt_t(bb, de_assign_stmt));
     } else if (auto delay_control = dynamic_cast<VeriDelayControlStatement*>(stmt)) {
         /// "#" followed by the delay followed by a statement.
         /// useful for tracking timing leakage.
-        bb->append(new stmt_t(delay_control));
+        bb->append(new stmt_t(bb, delay_control));
     } else if (auto disable_stmt = dynamic_cast<VeriDisable*>(stmt)) {
         /// "disable" keyword for jumping to a specific point in the code.
         /// useful for tracking timing leakage.
-        bb->append(new stmt_t(disable_stmt));
+        bb->append(new stmt_t(bb, disable_stmt));
     } else if (auto event_ctrl = dynamic_cast<VeriEventControlStatement*>(stmt)) {
         /// "@" expression for specifying when to trigger some actions.
         /// useful for tracking timing and non-timing leakage.
@@ -1191,7 +1224,7 @@ void module_t::process_statement(bb_t*& bb, VeriStatement* stmt) {
     } else if (auto event_trigger = dynamic_cast<VeriEventTrigger*>(stmt)) {
         /// "->" or "->>" expression to specify an event to trigger.
         /// useful for tracking timing and non-timing leakage.
-        bb->append(new stmt_t(event_trigger));
+        bb->append(new stmt_t(bb, event_trigger));
     } else if (auto force = dynamic_cast<VeriForce*>(stmt)) {
         /// used only during simulation (SystemVerilog?), ignore for now.
         // TODO
@@ -1201,7 +1234,7 @@ void module_t::process_statement(bb_t*& bb, VeriStatement* stmt) {
         // TODO
     } else if (auto non_blocking_assign = dynamic_cast<VeriNonBlockingAssign*>(stmt)) {
         /// assignment using "<=" without the assign keyword
-        bb->append(new stmt_t(non_blocking_assign));
+        bb->append(new stmt_t(bb, non_blocking_assign));
     } else if (auto par_block = dynamic_cast<VeriParBlock*>(stmt)) {
         VeriStatement* __stmt = nullptr;
 
@@ -1225,8 +1258,41 @@ void module_t::process_statement(bb_t*& bb, VeriStatement* stmt) {
     } else if (auto wait = dynamic_cast<VeriWait*>(stmt)) {
         /// "wait" keyword for waiting for an expression to be true.
         /// useful for tracking timing leakage.
-        bb->append(new stmt_t(wait));
+        bb->append(new stmt_t(bb, wait));
     } else {
         balk(stmt, "unhandled node");
     }
+}
+
+instr_set_t& module_t::def_instrs(identifier_t identifier) {
+    id_map_t::iterator it = def_map.find(identifier);
+    assert(it != def_map.end() && "failed to find def for requested id!");
+
+    return it->second;
+}
+
+instr_set_t& module_t::use_instrs(identifier_t identifier) {
+    id_map_t::iterator it = use_map.find(identifier);
+    assert(it != use_map.end() && "failed to find use for requested id!");
+
+    return it->second;
+}
+
+void module_t::remove_from_top_level_blocks(bb_t* bb) {
+    top_level_blocks.erase(bb);
+}
+
+bool module_t::exists(bb_t* bb) {
+    return std::find(basicblocks.begin(), basicblocks.end(), bb) !=
+        basicblocks.end();
+}
+
+bool module_t::postdominates(bb_t* lo, bb_t* hi) {
+    if (exists(lo) == false || exists(hi) == false) {
+        assert(false && "non-existent blocks as input to postdominates!");
+        return false;
+    }
+
+    bb_set_t& postdom_set = postdominators.at(hi);
+    return postdom_set.find(lo) != postdom_set.end();
 }
