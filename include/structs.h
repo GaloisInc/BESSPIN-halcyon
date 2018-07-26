@@ -51,6 +51,16 @@ enum {
     STATE_USE       = 2,
 };
 
+enum {
+    BB_ALWAYS = 0,
+    BB_PARAMS,
+    BB_ARGS,
+    BB_CONT_ASSIGNMENT,
+    BB_INITIAL,
+    BB_DANGLING,
+    BB_ORDINARY,
+};
+
 typedef struct {
     identifier_t name;
     state_t type;
@@ -167,7 +177,8 @@ class cmpr_t : public instr_t {
 class bb_t {
   private:
     bb_t* entry_bb;
-    identifier_t name;
+    state_t bb_type;
+    identifier_t bb_name;
     bb_set_t predecessors;
     instr_list_t instr_list;
     module_t* containing_module;
@@ -178,7 +189,7 @@ class bb_t {
     bool add_predecessor(bb_t*);
 
   public:
-    explicit bb_t(module_t*, const identifier_t&);
+    explicit bb_t(module_t*, const identifier_t&, state_t);
     ~bb_t();
 
     // disable copy constructor.
@@ -190,6 +201,8 @@ class bb_t {
     bool set_right_successor(bb_t*&);
 
     bb_set_t& preds();
+    identifier_t name();
+    state_t block_type();
     instr_list_t& instrs();
 
     bb_t* entry_block();
@@ -236,7 +249,8 @@ class module_t {
     void process_module_item(VeriModuleItem*);
     void process_statement(bb_t*&, VeriStatement*);
 
-    bb_t* create_empty_bb(identifier_t);
+    bb_t* create_empty_bb(identifier_t, state_t);
+
     bb_t* find_imm_dominator(bb_t*, bb_set_t&);
     bb_t* find_imm_postdominator(bb_t*, bb_set_t&);
 

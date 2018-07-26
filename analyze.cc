@@ -74,7 +74,8 @@ void trace_definition(identifier_t identifier, module_t* module_ds) {
             bb_t* parent_bb = instr->parent();
             bb_t* entry_bb = parent_bb->entry_block();
 
-            if (module_ds->postdominates(parent_bb, entry_bb) == false) {
+            if (module_ds->postdominates(parent_bb, entry_bb) == false &&
+                    entry_bb->block_type() == BB_ALWAYS) {
                 trigger_ids.insert(id);
             }
 

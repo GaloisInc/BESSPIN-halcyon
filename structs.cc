@@ -432,9 +432,10 @@ bool cmpr_t::operator==(const instr_t& reference) {
     return false;
 }
 
-bb_t::bb_t(module_t* parent, const std::string& __name) {
-    name = __name;
+bb_t::bb_t(module_t* parent, const identifier_t& __name, state_t __bb_type) {
+    bb_name = __name;
     entry_bb = nullptr;
+    bb_type = __bb_type;
     containing_module = parent;
 
     successor_left = nullptr;
@@ -555,16 +556,16 @@ void bb_t::dump() {
         std::cerr << "    ";
     }
 
-    std::cerr << "[" << name << "]  pointing to  ";
+    std::cerr << "[" << bb_name << "]  pointing to  ";
 
     if (successor_left != nullptr) {
-        std::cerr << successor_left->name << " and ";
+        std::cerr << successor_left->bb_name << " and ";
     } else {
         std::cerr << "-nil- and ";
     }
 
     if (successor_right != nullptr) {
-        std::cerr << successor_right->name << "\n";
+        std::cerr << successor_right->bb_name << "\n";
     } else {
         std::cerr << "-nil-\n";
     }
@@ -574,8 +575,16 @@ bb_t* bb_t::entry_block() {
     return entry_bb;
 }
 
+identifier_t bb_t::name() {
+    return bb_name;
+};
+
 void bb_t::set_entry_block(bb_t* block) {
     entry_bb = block;
+}
+
+state_t bb_t::block_type() {
+    return bb_type;
 }
 
 module_t::module_t(VeriModule*& module) {
@@ -599,7 +608,7 @@ identifier_t module_t::name() {
     return mod_name;
 }
 
-bb_t* module_t::create_empty_bb(identifier_t name) {
+bb_t* module_t::create_empty_bb(identifier_t name, state_t bb_type) {
     // create key if necessary.
     uint32_t counter = bb_id_map[name];
     bb_id_map[name] = counter + 1;
@@ -607,7 +616,7 @@ bb_t* module_t::create_empty_bb(identifier_t name) {
     char bb_name[1024];
     snprintf(bb_name, sizeof(bb_name), "bb.%s.%u", name.c_str(), counter);
 
-    bb_t* new_block = new bb_t(this, std::string(bb_name));
+    bb_t* new_block = new bb_t(this, std::string(bb_name), bb_type);
     basicblocks.push_back(new_block);
 
     // Mark this as a top-level block for now,
@@ -1003,7 +1012,7 @@ void module_t::process_module_params(Array* params) {
     unsigned idx = 0;
     VeriIdDef* id_def = nullptr;
 
-    bb_t* bb_params = create_empty_bb("params");
+    bb_t* bb_params = create_empty_bb("params", BB_PARAMS);
 
     FOREACH_ARRAY_ITEM(params, idx, id_def) {
         bb_params->append(new param_t(bb_params, id_def->GetName()));
@@ -1017,7 +1026,7 @@ void module_t::process_module_ports(Array* port_connects) {
 
     unsigned idx = 0;
     VeriAnsiPortDecl* decl = nullptr;
-    bb_t* arg_bb = create_empty_bb("args");
+    bb_t* arg_bb = create_empty_bb("args", BB_ARGS);
 
     FOREACH_ARRAY_ITEM(port_connects, idx, decl) {
         uint8_t state = STATE_UNKNOWN;
@@ -1072,10 +1081,10 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
             dynamic_cast<VeriTimeUnit*>(module_item) != nullptr) {
         balk(module_item, "unhandled node");
     } else if (auto always = dynamic_cast<VeriAlwaysConstruct*>(module_item)) {
-        bb_t* bb = create_empty_bb("always");
+        bb_t* bb = create_empty_bb("always", BB_ALWAYS);
         process_statement(bb, always->GetStmt());
     } else if (auto continuous = dynamic_cast<VeriContinuousAssign*>(module_item)) {
-        bb_t* bb = create_empty_bb("cassign");
+        bb_t* bb = create_empty_bb("cassign", BB_CONT_ASSIGNMENT);
 
         /// "assign" outside an "always" block.
         uint32_t idx = 0;
@@ -1093,7 +1102,7 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
         module_t* module_ds = new module_t(function_name);
         module_ds->set_function();
 
-        bb_t* arg_bb = module_ds->create_empty_bb("args");
+        bb_t* arg_bb = module_ds->create_empty_bb("args", BB_ARGS);
 
         uint32_t idx = 0;
         VeriAnsiPortDecl* decl = nullptr;
@@ -1119,7 +1128,7 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
         module_map.emplace(function_name, module_ds);
     */
     } else if (auto initial = dynamic_cast<VeriInitialConstruct*>(module_item)) {
-        bb_t* bb = create_empty_bb("initial");
+        bb_t* bb = create_empty_bb("initial", BB_INITIAL);
         process_statement(bb, initial->GetStmt());
     } else if (auto decl = dynamic_cast<VeriDataDecl*>(module_item)) {
         unsigned idx = 0;
@@ -1143,7 +1152,7 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
     } else if (auto module = dynamic_cast<VeriModule*>(module_item)) {
         // TOOD: process_module(module);
     } else if (auto inst = dynamic_cast<VeriModuleInstantiation*>(module_item)) {
-        bb_t* bb = create_empty_bb("initial");
+        bb_t* bb = create_empty_bb("instantiation", BB_ORDINARY);
 
         uint32_t idx = 0;
         VeriInstId* module_instance = nullptr;
@@ -1153,7 +1162,7 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
             bb->append(new invoke_t(bb, module_instance, module_name));
         }
     } else if (auto stmt = dynamic_cast<VeriStatement*>(module_item)) {
-        bb_t* bb = create_empty_bb(".dangling");
+        bb_t* bb = create_empty_bb(".dangling", BB_DANGLING);
         process_statement(bb, stmt);
     } else {
         balk(module_item, "unhandled node");
@@ -1188,9 +1197,9 @@ void module_t::process_statement(bb_t*& bb, VeriStatement* stmt) {
         }
     } else if (auto cond_stmt = dynamic_cast<VeriConditionalStatement*>(stmt)) {
         bb->append(new cmpr_t(bb, cond_stmt->GetIfExpr()));
-        bb_t* merge_bb = create_empty_bb("merge");
+        bb_t* merge_bb = create_empty_bb("merge", BB_ORDINARY);
 
-        bb_t* then_bb = create_empty_bb("then");
+        bb_t* then_bb = create_empty_bb("then", BB_ORDINARY);
         bb->set_left_successor(then_bb);
 
         process_statement(then_bb, stmt->GetThenStmt());
@@ -1198,7 +1207,7 @@ void module_t::process_statement(bb_t*& bb, VeriStatement* stmt) {
 
         VeriStatement* inner_statement = stmt->GetElseStmt();
         if (inner_statement != nullptr) {
-            bb_t* else_bb = create_empty_bb("else");
+            bb_t* else_bb = create_empty_bb("else", BB_ORDINARY);
             bb->set_right_successor(else_bb);
 
             process_statement(else_bb, inner_statement);
