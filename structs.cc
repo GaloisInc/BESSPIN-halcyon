@@ -111,8 +111,31 @@ void instr_t::describe_expression(VeriExpression* expr,
         FOREACH_ARRAY_ITEM(multi_concat->GetExpressions(), idx, expression) {
             describe_expression(expression, desc_list, type_hint);
         }
-    } else if (auto name = dynamic_cast<VeriName*>(expr)) {
-        id_desc_t desc = { name->GetName(), type_hint };
+    } else if (dynamic_cast<VeriFunctionCall*>(expr) != nullptr) {
+        // handle later when we match the call with the function definition.
+    } else if (auto id_ref = dynamic_cast<VeriIdRef*>(expr)) {
+        id_desc_t desc = { id_ref->GetName(), type_hint };
+        desc_list.push_back(desc);
+    } else if (auto indexed_id = dynamic_cast<VeriIndexedId*>(expr)) {
+        id_desc_t desc = { indexed_id->GetName(), type_hint };
+        desc_list.push_back(desc);
+
+        describe_expression(indexed_id->GetIndexExpr(), desc_list, STATE_USE);
+    } else if (auto idx_mem_id = dynamic_cast<VeriIndexedMemoryId*>(expr)) {
+        id_desc_t desc = { idx_mem_id->GetName(), type_hint };
+        desc_list.push_back(desc);
+
+        uint32_t idx = 0;
+        VeriExpression* expression = nullptr;
+
+        FOREACH_ARRAY_ITEM(idx_mem_id->GetIndexes(), idx, expression) {
+            describe_expression(expression, desc_list, STATE_USE);
+        }
+    } else if (auto selected_name = dynamic_cast<VeriSelectedName*>(expr)) {
+        id_desc_t desc = { selected_name->GetPrefix()->GetName(), type_hint };
+        desc_list.push_back(desc);
+
+        desc = { selected_name->GetSuffix(), type_hint };
         desc_list.push_back(desc);
     } else if (auto new_expr = dynamic_cast<VeriNew*>(expr)) {
         describe_expression(new_expr->GetSizeExpr(), desc_list, type_hint);
@@ -142,13 +165,6 @@ void instr_t::describe_expression(VeriExpression* expr,
         describe_expression(range->GetLeft(), desc_list, type_hint);
         describe_expression(range->GetRight(), desc_list, type_hint);
     } else if (auto sysfunc = dynamic_cast<VeriSystemFunctionCall*>(expr)) {
-        identifier_t func_name = sysfunc->GetName();
-
-        if (func_name != "unsigned" && func_name != "signed") {
-            id_desc_t desc = { sysfunc->GetName(), type_hint };
-            desc_list.push_back(desc);
-        }
-
         uint32_t idx = 0;
         VeriExpression* expression = nullptr;
 
@@ -865,12 +881,22 @@ void module_t::resolve_links(module_map_t& module_map) {
         for (instr_t* instr : bb->instrs()) {
             if (invoke_t* invocation = dynamic_cast<invoke_t*>(instr)) {
                 resolve_invoke(invocation, module_map);
-            }
+            } /* FIXME: else if (stmt_t* stmt = dynamic_cast<stmt_t*>(instr)) {
+                VeriStatement* statement = stmt->statement();
+
+                if (auto fcall = dynamic_cast<VeriFunctionCall*>(statement)) {
+                    fcall->PrettyPrintXml(std::cerr, 100);
+                }
+            } */
         }
     }
 }
 
 void module_t::print_undef_ids() {
+    if (is_function == true) {
+        return;
+    }
+
     id_set_t undef_ids;
 
     for (id_map_t::iterator it = use_map.begin(); it != use_map.end(); it++) {
@@ -907,4 +933,8 @@ uint8_t module_t::arg_state(identifier_t name) {
     }
 
     return it->second;
+}
+
+void module_t::set_function() {
+    is_function = true;
 }

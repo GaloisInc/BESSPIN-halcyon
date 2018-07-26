@@ -198,6 +198,7 @@ class bb_t {
 
 class module_t {
   private:
+    bool is_function;
     identifier_t mod_name;
     instance_set_t instance_set;
 
@@ -235,6 +236,7 @@ class module_t {
 
     void dump();
     identifier_t name();
+    void set_function();
     bool append(instr_t*);
     void print_undef_ids();
     void build_def_use_chains();

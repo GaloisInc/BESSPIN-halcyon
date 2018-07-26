@@ -120,8 +120,38 @@ void process_module_item(VeriModuleItem* module_item, module_t* module_ds) {
         FOREACH_ARRAY_ITEM(continuous->GetNetAssigns(), idx, net_reg_assign) {
             module_ds->append(new assign_t(net_reg_assign));
         }
-    } else if (dynamic_cast<VeriFunctionDecl*>(module_item) != nullptr) {
-        // TODO
+    } else if (auto func_decl = dynamic_cast<VeriFunctionDecl*>(module_item)) {
+        // Treat this just like any other module.
+        VeriName* veri_name = func_decl->GetSubprogramName();
+        identifier_t function_name = veri_name->GetName();
+
+        module_t* module_ds = new module_t(function_name);
+        module_ds->set_function();
+
+        bb_t* arg_bb = module_ds->create_empty_basicblock("args");
+
+        uint32_t idx = 0;
+        VeriAnsiPortDecl* decl = nullptr;
+
+        FOREACH_ARRAY_ITEM(func_decl->GetAnsiIOList(), idx, decl) {
+            uint8_t state = STATE_UNKNOWN;
+
+            switch (decl->GetDir()) {
+                case VERI_INPUT:    state = STATE_DEF;              break;
+                case VERI_OUTPUT:   state = STATE_USE;              break;
+                case VERI_INOUT:    state = STATE_DEF | STATE_USE;  break;
+            }
+
+            unsigned idx = 0;
+            VeriIdDef* arg_id = nullptr;
+
+            FOREACH_ARRAY_ITEM(decl->GetIds(), idx, arg_id) {
+                module_ds->add_arg(arg_id->GetName(), state);
+                arg_bb->append(new arg_t(arg_id->GetName(), state));
+            }
+        }
+
+        module_map.emplace(function_name, module_ds);
     } else if (auto initial = dynamic_cast<VeriInitialConstruct*>(module_item)) {
         bb_t* bb = module_ds->create_empty_basicblock("initial");
         process_statement(module_ds, bb, initial->GetStmt());
@@ -230,11 +260,11 @@ void process_statement(module_t* module, bb_t*& bb, VeriStatement* stmt) {
         bb->append(new stmt_t(event_trigger));
     } else if (auto force = dynamic_cast<VeriForce*>(stmt)) {
         /// used only during simulation (SystemVerilog?), ignore for now.
-        // TODO: process_force_stmt(force);
+        // TODO
     } else if (auto gen_var_assign = dynamic_cast<VeriGenVarAssign*>(stmt)) {
-        // TODO: process_gen_var_assign_stmt(gen_var_assign);
+        // TODO
     } else if (auto loop = dynamic_cast<VeriLoop*>(stmt)) {
-        // TODO: process_loop_stmt(loop);
+        // TODO
     } else if (auto non_blocking_assign = dynamic_cast<VeriNonBlockingAssign*>(stmt)) {
         /// assignment using "<=" without the assign keyword
         bb->append(new stmt_t(non_blocking_assign));
