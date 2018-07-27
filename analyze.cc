@@ -33,10 +33,16 @@ unsigned parse_modules() {
     MapIter map_iter;
     VeriModule* module = nullptr;
 
+    fprintf(stderr, "\r                                                     ");
+    fprintf(stderr, "\rparsing module(s) ... ");
+
     FOREACH_VERILOG_MODULE(map_iter, module) {
         module_t* module_ds = new module_t(module);
         module_map.emplace(module_ds->name(), module_ds);
     }
+
+    fprintf(stderr, "\r                                                     ");
+    fprintf(stderr, "\rbuilding def-use chains ... ");
 
     for (auto it = module_map.begin(); it != module_map.end(); it++) {
         module_t* module_ds = it->second;
@@ -44,6 +50,9 @@ unsigned parse_modules() {
         module_ds->resolve_links(module_map);
         module_ds->build_def_use_chains();
     }
+
+    fprintf(stderr, "\r                                                     ");
+    fprintf(stderr, "\r");
 
     return module_map.size();
 }
@@ -152,7 +161,13 @@ bool gather_dependencies(instr_t* instr, dep_set_t& workset,
 }
 
 bool trace_timing_leak(identifier_t identifier, module_t* module_ds) {
+    fprintf(stderr, "\r                                                     ");
+    fprintf(stderr, "\rbuilding dominator trees ... ");
+
     module_ds->build_dominator_sets();
+
+    fprintf(stderr, "\r                                                     ");
+    fprintf(stderr, "\rtracing definitions ... ");
 
     dep_set_t workset;
     dep_set_t seen_set;
@@ -259,9 +274,11 @@ void process_text(const char* __buffer) {
     assert(it != module_map.end() && "failed to find MulDiv module!");
 
     if (trace_timing_leak(field, it->second) == true) {
-        std::cerr << "timing leak found.\n";
+        fprintf(stderr, "\r                                                 ");
+        fprintf(stderr, "\rfound timing leak.\n");
     } else {
-        std::cerr << "no leak found.\n";
+        fprintf(stderr, "\r                                                 ");
+        fprintf(stderr, "\rdid not find timing leak.\n");
     }
 }
 
@@ -275,8 +292,6 @@ int main(int argc, char **argv) {
     analyze_file(filename);
     parse_modules();
 
-#if 0
-#else
     rl_attempted_completion_function = complete_text;
 
     char* buffer = nullptr;
@@ -293,7 +308,6 @@ int main(int argc, char **argv) {
             break;
         }
     }
-#endif
 
     destroy_module_map();
     return 0 ;
