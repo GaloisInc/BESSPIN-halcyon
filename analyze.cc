@@ -1,6 +1,9 @@
 #include <cassert>
 #include <iostream>
 
+#include <readline/readline.h>
+#include <readline/history.h>
+
 #include <Array.h>
 #include <Map.h>
 #include <veri_file.h>
@@ -13,8 +16,9 @@
 #include "structs.h"
 
 using namespace Verific;
+module_map_t module_map;
 
-void destroy_module_map(module_map_t& module_map) {
+void destroy_module_map() {
     for (auto it = module_map.begin(); it != module_map.end(); it++) {
         module_t* module_ds = it->second;
 
@@ -25,7 +29,7 @@ void destroy_module_map(module_map_t& module_map) {
     module_map.clear();
 }
 
-unsigned parse_modules(module_map_t& module_map) {
+unsigned parse_modules() {
     MapIter map_iter;
     VeriModule* module = nullptr;
 
@@ -147,7 +151,7 @@ bool gather_dependencies(instr_t* instr, dep_set_t& workset,
     return false;
 }
 
-void trace_definition(identifier_t identifier, module_t* module_ds) {
+bool trace_timing_leak(identifier_t identifier, module_t* module_ds) {
     module_ds->build_dominator_sets();
 
     dep_set_t workset;
@@ -156,8 +160,6 @@ void trace_definition(identifier_t identifier, module_t* module_ds) {
     dependence_t dependence = { DEP_ORDINARY, identifier };
     workset.insert(dependence);
     seen_set.insert(dependence);
-
-    bool timing_leak = false;
 
     do {
         dep_set_t::iterator it = workset.begin();
@@ -168,15 +170,98 @@ void trace_definition(identifier_t identifier, module_t* module_ds) {
 
         for (instr_t* instr : instr_set) {
             if (gather_dependencies(instr, workset, seen_set, dependence)) {
-                timing_leak = true;
+                return true;
             }
         }
-    } while (timing_leak == false && workset.size() > 0);
+    } while (workset.size() > 0);
 
-    if (timing_leak == true) {
-        std::cerr << "aaha!\n";
+    return false;
+}
+
+const char* suffix = nullptr;
+
+char* name_gen(const char *__text, int state) {
+    static id_list_t matches;
+    static size_t match_index = 0;
+
+    if (state == 0) {
+        matches.clear();
+        match_index = 0;
+
+        std::string text = std::string(__text);
+
+        if (suffix == nullptr) {
+            for (module_map_t::iterator it = module_map.begin();
+                    it != module_map.end(); it++) {
+                identifier_t module_name = it->first;
+
+                if (module_name.size() >= text.size() &&
+                        module_name.compare(0, text.size(), text) == 0) {
+                    matches.push_back(module_name);
+                }
+            }
+        } else {
+            std::string module_name = text.substr(0, suffix - __text - 1);
+            std::string field = std::string(suffix);
+
+            module_map_t::iterator it = module_map.find(module_name);
+            if (it == module_map.end()) {
+                std::cerr << "not found: " << module_name << "\n";
+                return nullptr;
+            }
+
+            module_t* module_ds = it->second;
+
+            for (identifier_t port : module_ds->output_ports()) {
+                if (port.size() >= field.size() &&
+                        port.compare(0, field.size(), field) == 0) {
+                    matches.push_back(module_name + "." + port);
+                }
+            }
+        }
+    }
+
+    if (match_index >= matches.size()) {
+        return nullptr;
+    }
+
+    return strdup(matches[match_index++].c_str());
+}
+
+char** complete_text(const char *text, int start, int end) {
+    rl_attempted_completion_over = 1;
+    const char* separator = strchr(text, '.');
+
+    if (separator == nullptr) {
+        suffix = nullptr;
+        rl_completion_append_character = '.';
     } else {
-        std::cerr << "meh.\n";
+        rl_completion_suppress_append = 1;
+        suffix = separator + 1;
+    }
+
+    return rl_completion_matches(text, name_gen);
+}
+
+void process_text(const char* __buffer) {
+    const char* separator = strchr(__buffer, '.');
+
+    if (separator == nullptr) {
+        std::cerr << "need <module>.<output-port>, found " << __buffer << "\n";
+        return;
+    }
+
+    std::string buffer(__buffer);
+    std::string module_name = buffer.substr(0, separator - __buffer);
+    std::string field = std::string(separator + 1);
+
+    module_map_t::iterator it = module_map.find(module_name);
+    assert(it != module_map.end() && "failed to find MulDiv module!");
+
+    if (trace_timing_leak(field, it->second) == true) {
+        std::cerr << "timing leak found.\n";
+    } else {
+        std::cerr << "no leak found.\n";
     }
 }
 
@@ -188,15 +273,28 @@ int main(int argc, char **argv) {
 
     const char* filename = argv[1];
     analyze_file(filename);
+    parse_modules();
 
-    module_map_t module_map;
-    parse_modules(module_map);
+#if 0
+#else
+    rl_attempted_completion_function = complete_text;
 
-    module_map_t::iterator it = module_map.find("MulDiv");
-    assert(it != module_map.end() && "failed to find MulDiv module!");
+    char* buffer = nullptr;
+    while ((buffer = readline(">> ")) != nullptr) {
+        if (strlen(buffer) == 0) {
+            continue;
+        } else if (strcmp(buffer, "quit") != 0) {
+            add_history(buffer);
+            process_text(buffer);
 
-    trace_definition("io_resp_valid", it->second);
+            free(buffer);
+        } else {
+            free(buffer);
+            break;
+        }
+    }
+#endif
 
-    destroy_module_map(module_map);
+    destroy_module_map();
     return 0 ;
 }

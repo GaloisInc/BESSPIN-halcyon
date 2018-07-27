@@ -1089,8 +1089,14 @@ void module_t::process_module_ports(Array* port_connects) {
         VeriIdDef* arg_id = nullptr;
 
         FOREACH_ARRAY_ITEM(decl->GetIds(), idx, arg_id) {
-            add_arg(arg_id->GetName(), state);
-            arg_bb->append(new arg_t(arg_bb, arg_id->GetName(), state));
+            identifier_t id = arg_id->GetName();
+
+            if (state & STATE_USE) {
+                out_ports.insert(id);
+            }
+
+            add_arg(id, state);
+            arg_bb->append(new arg_t(arg_bb, id, state));
         }
     }
 }
@@ -1407,4 +1413,8 @@ void module_t::populate_guard_blocks(bb_t* ref_bb, bb_set_t& guard_blocks) {
         // Continue upwards from the newly discovered condition block.
         ref_bb = hi_block;
     }
+}
+
+id_set_t& module_t::output_ports() {
+    return out_ports;
 }

@@ -5,6 +5,8 @@
 #include <list>
 #include <map>
 #include <set>
+#include <vector>
+
 #include <stdint.h>
 
 #include <VeriStatement.h>
@@ -29,6 +31,8 @@ typedef std::set<instance_t> instance_set_t;
 
 typedef std::list<bb_t*> bb_list_t;
 typedef std::list<instr_t*> instr_list_t;
+
+typedef std::vector<identifier_t> id_list_t;
 
 typedef std::map<bb_t*, bb_t*> bb_map_t;
 typedef std::map<bb_t*, bb_set_t> bb_set_map_t;
@@ -249,6 +253,7 @@ class module_t {
 
     id_map_t def_map;
     id_map_t use_map;
+    id_set_t out_ports;
     id_state_map_t arg_states;
 
     state_t arg_state(identifier_t);
@@ -295,6 +300,7 @@ class module_t {
     bb_t* immediate_postdominator(bb_t*);
 
     identifier_t name();
+    id_set_t& output_ports();
     instr_set_t& def_instrs(identifier_t);
     instr_set_t& use_instrs(identifier_t);
 

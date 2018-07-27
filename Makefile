@@ -14,7 +14,7 @@ LDFLAGS = $(VERIFIC_ROOT)/verilog/verilog-linux.a   \
 all:    analyze
 
 analyze:    $(OBJECTS)
-	$(CXX) $(OBJECTS) $(LDFLAGS) -o $@ -O3
+	$(CXX) $(OBJECTS) $(LDFLAGS) -o $@ -O3 -lreadline
 
 clean:
 	$(RM) $(OBJECTS) analyze
