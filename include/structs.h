@@ -77,7 +77,6 @@ class instr_t {
 
     void parse_statement(VeriStatement*);
     void parse_expression(VeriExpression*, state_t);
-    void describe_expression(VeriExpression*, id_desc_list_t&, state_t);
 
   public:
     instr_t(bb_t*);
@@ -88,6 +87,7 @@ class instr_t {
     bb_t* parent();
     id_set_t& defs();
     id_set_t& uses();
+    static void describe_expr(VeriExpression*, id_desc_list_t&, state_t);
 
     virtual void dump() = 0;
     virtual bool operator==(const instr_t&) = 0;
@@ -113,6 +113,20 @@ class param_t : public instr_t {
   public:
     param_t(const param_t&) = delete;
     explicit param_t(bb_t*, identifier_t);
+
+    virtual void dump();
+    virtual bool operator==(const instr_t&);
+};
+
+class trigger_t : public instr_t {
+  private:
+    id_set_t id_set;
+
+  public:
+    trigger_t(const trigger_t&) = delete;
+    explicit trigger_t(bb_t*, id_set_t&);
+
+    id_set_t& trigger_ids();
 
     virtual void dump();
     virtual bool operator==(const instr_t&);
@@ -201,7 +215,9 @@ class bb_t {
     bool set_right_successor(bb_t*&);
 
     bb_set_t& preds();
+    module_t* parent();
     identifier_t name();
+    cmpr_t* comparison();
     state_t block_type();
     instr_list_t& instrs();
 
@@ -273,6 +289,10 @@ class module_t {
     void build_dominator_sets();
     void resolve_links(module_map_t&);
     void remove_from_top_level_blocks(bb_t*);
+    void populate_guard_blocks(bb_t*, bb_set_t&);
+
+    bb_t* immediate_dominator(bb_t*);
+    bb_t* immediate_postdominator(bb_t*);
 
     identifier_t name();
     instr_set_t& def_instrs(identifier_t);

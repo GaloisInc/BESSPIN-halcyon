@@ -26,8 +26,12 @@ instr_t::~instr_t() {
     containing_bb = nullptr;
 }
 
-void instr_t::describe_expression(VeriExpression* expr,
-        id_desc_list_t& desc_list, uint8_t type_hint) {
+void instr_t::describe_expr(VeriExpression* expr, id_desc_list_t& desc_list,
+        uint8_t type_hint) {
+    if (expr == nullptr) {
+        return;
+    }
+
     if (dynamic_cast<VeriDefaultBinValue*>(expr) != nullptr ||
             dynamic_cast<VeriForeachOperator*>(expr) != nullptr ||
             dynamic_cast<VeriTransRangeList*>(expr) != nullptr ||
@@ -46,42 +50,42 @@ void instr_t::describe_expression(VeriExpression* expr,
         VeriIdDef* id_def = nullptr;
 
         FOREACH_ARRAY_ITEM(port->GetIds(), idx, id_def) {
-            describe_expression(id_def->GetActualName(), desc_list, type_hint);
+            describe_expr(id_def->GetActualName(), desc_list, type_hint);
         }
     } else if (auto bin_op = dynamic_cast<VeriBinaryOperator*>(expr)) {
-        describe_expression(bin_op->GetLeft(), desc_list, type_hint);
-        describe_expression(bin_op->GetRight(), desc_list, type_hint);
+        describe_expr(bin_op->GetLeft(), desc_list, type_hint);
+        describe_expr(bin_op->GetRight(), desc_list, type_hint);
     } else if (auto case_op = dynamic_cast<VeriCaseOperator*>(expr)) {
-        describe_expression(case_op->GetCondition(), desc_list, STATE_USE);
+        describe_expr(case_op->GetCondition(), desc_list, STATE_USE);
 
         uint32_t idx = 0;
         VeriCaseOperatorItem* case_op_item = nullptr;
 
         FOREACH_ARRAY_ITEM(case_op->GetCaseItems(), idx, case_op_item) {
             VeriExpression* property_expr = case_op_item->GetPropertyExpr();
-            describe_expression(property_expr, desc_list, type_hint);
+            describe_expr(property_expr, desc_list, type_hint);
 
             uint32_t idx = 0;
             VeriExpression* condition = nullptr;
 
             FOREACH_ARRAY_ITEM(case_op_item->GetConditions(), idx, condition) {
-                describe_expression(condition, desc_list, STATE_USE);
+                describe_expr(condition, desc_list, STATE_USE);
             }
         }
     } else if (auto cast_op = dynamic_cast<VeriCast*>(expr)) {
-        describe_expression(cast_op->GetExpr(), desc_list, type_hint);
+        describe_expr(cast_op->GetExpr(), desc_list, type_hint);
     } else if (auto concat = dynamic_cast<VeriConcat*>(expr)) {
         uint32_t idx = 0;
         VeriConcatItem* concat_item = nullptr;
 
         FOREACH_ARRAY_ITEM(concat->GetExpressions(), idx, concat_item) {
-            describe_expression(concat_item, desc_list, type_hint);
+            describe_expr(concat_item, desc_list, type_hint);
         }
     } else if (auto concat_item = dynamic_cast<VeriConcatItem*>(expr)) {
-        describe_expression(concat_item->GetExpr(), desc_list, type_hint);
+        describe_expr(concat_item->GetExpr(), desc_list, type_hint);
     } else if (auto cond_pred = dynamic_cast<VeriCondPredicate*>(expr)) {
-        describe_expression(cond_pred->GetLeft(), desc_list, type_hint);
-        describe_expression(cond_pred->GetRight(), desc_list, type_hint);
+        describe_expr(cond_pred->GetLeft(), desc_list, type_hint);
+        describe_expr(cond_pred->GetRight(), desc_list, type_hint);
     } else if (dynamic_cast<VeriConst*>(expr) != nullptr ||
             dynamic_cast<VeriDataType*>(expr) != nullptr ||
             dynamic_cast<VeriDollar*>(expr) != nullptr ||
@@ -94,39 +98,39 @@ void instr_t::describe_expression(VeriExpression* expr,
         VeriExpression* expression = nullptr;
 
         FOREACH_ARRAY_ITEM(constraint_set->GetExpressions(), idx, expression) {
-            describe_expression(expression, desc_list, type_hint);
+            describe_expr(expression, desc_list, type_hint);
         }
     } else if (auto delay_ctrl = dynamic_cast<VeriDelayOrEventControl*>(expr)) {
-        describe_expression(delay_ctrl->GetDelayControl(), desc_list, STATE_USE);
+        describe_expr(delay_ctrl->GetDelayControl(), desc_list, STATE_USE);
 
         uint32_t idx = 0;
         VeriExpression* expression = nullptr;
 
         FOREACH_ARRAY_ITEM(delay_ctrl->GetEventControl(), idx, expression) {
-            describe_expression(expression, desc_list, STATE_USE);
+            describe_expr(expression, desc_list, STATE_USE);
         }
 
-        describe_expression(delay_ctrl->GetRepeatEvent(), desc_list, type_hint);
+        describe_expr(delay_ctrl->GetRepeatEvent(), desc_list, type_hint);
     } else if (auto dot_name = dynamic_cast<VeriDotName*>(expr)) {
-        describe_expression(dot_name->GetVarName(), desc_list, type_hint);
+        describe_expr(dot_name->GetVarName(), desc_list, type_hint);
     } else if (auto event_expr = dynamic_cast<VeriEventExpression*>(expr)) {
-        describe_expression(event_expr->GetIffCondition(), desc_list, STATE_USE);
-        describe_expression(event_expr->GetExpr(), desc_list, type_hint);
+        describe_expr(event_expr->GetIffCondition(), desc_list, STATE_USE);
+        describe_expr(event_expr->GetExpr(), desc_list, type_hint);
     } else if (auto indexed_expr = dynamic_cast<VeriIndexedExpr*>(expr)) {
-        describe_expression(indexed_expr->GetPrefixExpr(), desc_list, type_hint);
-        describe_expression(indexed_expr->GetIndexExpr(), desc_list, STATE_USE);
+        describe_expr(indexed_expr->GetPrefixExpr(), desc_list, type_hint);
+        describe_expr(indexed_expr->GetIndexExpr(), desc_list, STATE_USE);
     } else if (auto min_typ_max = dynamic_cast<VeriMinTypMaxExpr*>(expr)) {
-        describe_expression(min_typ_max->GetMinExpr(), desc_list, type_hint);
-        describe_expression(min_typ_max->GetTypExpr(), desc_list, type_hint);
-        describe_expression(min_typ_max->GetMaxExpr(), desc_list, type_hint);
+        describe_expr(min_typ_max->GetMinExpr(), desc_list, type_hint);
+        describe_expr(min_typ_max->GetTypExpr(), desc_list, type_hint);
+        describe_expr(min_typ_max->GetMaxExpr(), desc_list, type_hint);
     } else if (auto multi_concat = dynamic_cast<VeriMultiConcat*>(expr)) {
-        describe_expression(multi_concat->GetRepeat(), desc_list, STATE_USE);
+        describe_expr(multi_concat->GetRepeat(), desc_list, STATE_USE);
 
         uint32_t idx = 0;
         VeriExpression* expression = nullptr;
 
         FOREACH_ARRAY_ITEM(multi_concat->GetExpressions(), idx, expression) {
-            describe_expression(expression, desc_list, type_hint);
+            describe_expr(expression, desc_list, type_hint);
         }
     } else if (dynamic_cast<VeriFunctionCall*>(expr) != nullptr) {
         // handle later when we match the call with the function definition.
@@ -137,7 +141,7 @@ void instr_t::describe_expression(VeriExpression* expr,
         id_desc_t desc = { indexed_id->GetName(), type_hint };
         desc_list.push_back(desc);
 
-        describe_expression(indexed_id->GetIndexExpr(), desc_list, STATE_USE);
+        describe_expr(indexed_id->GetIndexExpr(), desc_list, STATE_USE);
     } else if (auto idx_mem_id = dynamic_cast<VeriIndexedMemoryId*>(expr)) {
         id_desc_t desc = { idx_mem_id->GetName(), type_hint };
         desc_list.push_back(desc);
@@ -146,7 +150,7 @@ void instr_t::describe_expression(VeriExpression* expr,
         VeriExpression* expression = nullptr;
 
         FOREACH_ARRAY_ITEM(idx_mem_id->GetIndexes(), idx, expression) {
-            describe_expression(expression, desc_list, STATE_USE);
+            describe_expr(expression, desc_list, STATE_USE);
         }
     } else if (auto selected_name = dynamic_cast<VeriSelectedName*>(expr)) {
         id_desc_t desc = { selected_name->GetPrefix()->GetName(), type_hint };
@@ -155,46 +159,46 @@ void instr_t::describe_expression(VeriExpression* expr,
         desc = { selected_name->GetSuffix(), type_hint };
         desc_list.push_back(desc);
     } else if (auto new_expr = dynamic_cast<VeriNew*>(expr)) {
-        describe_expression(new_expr->GetSizeExpr(), desc_list, type_hint);
+        describe_expr(new_expr->GetSizeExpr(), desc_list, type_hint);
 
         uint32_t idx = 0;
         VeriExpression* expression = nullptr;
 
         FOREACH_ARRAY_ITEM(new_expr->GetArgs(), idx, expression) {
-            describe_expression(expression, desc_list, STATE_USE);
+            describe_expr(expression, desc_list, STATE_USE);
         }
     } else if (auto path_pulse = dynamic_cast<VeriPathPulseVal*>(expr)) {
-        describe_expression(path_pulse->GetRejectLimit(), desc_list, type_hint);
-        describe_expression(path_pulse->GetErrorLimit(), desc_list, type_hint);
+        describe_expr(path_pulse->GetRejectLimit(), desc_list, type_hint);
+        describe_expr(path_pulse->GetErrorLimit(), desc_list, type_hint);
     } else if (auto pattern_match = dynamic_cast<VeriPatternMatch*>(expr)) {
-        describe_expression(pattern_match->GetLeft(), desc_list, type_hint);
-        describe_expression(pattern_match->GetRight(), desc_list, type_hint);
+        describe_expr(pattern_match->GetLeft(), desc_list, type_hint);
+        describe_expr(pattern_match->GetRight(), desc_list, type_hint);
     } else if (auto port_conn = dynamic_cast<VeriPortConnect*>(expr)) {
         id_desc_t desc = { port_conn->GetNamedFormal(), type_hint };
         desc_list.push_back(desc);
 
-        describe_expression(port_conn->GetConnection(), desc_list, type_hint);
+        describe_expr(port_conn->GetConnection(), desc_list, type_hint);
     } else if (auto question_colon = dynamic_cast<VeriQuestionColon*>(expr)) {
-        describe_expression(question_colon->GetIfExpr(), desc_list, STATE_USE);
-        describe_expression(question_colon->GetThenExpr(), desc_list, STATE_USE);
-        describe_expression(question_colon->GetElseExpr(), desc_list, STATE_USE);
+        describe_expr(question_colon->GetIfExpr(), desc_list, STATE_USE);
+        describe_expr(question_colon->GetThenExpr(), desc_list, STATE_USE);
+        describe_expr(question_colon->GetElseExpr(), desc_list, STATE_USE);
     } else if (auto range = dynamic_cast<VeriRange*>(expr)) {
-        describe_expression(range->GetLeft(), desc_list, type_hint);
-        describe_expression(range->GetRight(), desc_list, type_hint);
+        describe_expr(range->GetLeft(), desc_list, type_hint);
+        describe_expr(range->GetRight(), desc_list, type_hint);
     } else if (auto sysfunc = dynamic_cast<VeriSystemFunctionCall*>(expr)) {
         uint32_t idx = 0;
         VeriExpression* expression = nullptr;
 
         FOREACH_ARRAY_ITEM(sysfunc->GetArgs(), idx, expression) {
-            describe_expression(expression, desc_list, STATE_USE);
+            describe_expr(expression, desc_list, STATE_USE);
         }
     } else if (auto timing_check = dynamic_cast<VeriTimingCheckEvent*>(expr)) {
-        describe_expression(timing_check->GetCondition(), desc_list, STATE_USE);
-        describe_expression(timing_check->GetTerminalDesc(), desc_list, type_hint);
+        describe_expr(timing_check->GetCondition(), desc_list, STATE_USE);
+        describe_expr(timing_check->GetTerminalDesc(), desc_list, type_hint);
     } else if (auto unary_op = dynamic_cast<VeriUnaryOperator*>(expr)) {
-        describe_expression(unary_op->GetArg(), desc_list, type_hint);
+        describe_expr(unary_op->GetArg(), desc_list, type_hint);
     } else if (auto with_expr = dynamic_cast<VeriWith*>(expr)) {
-        describe_expression(with_expr->GetLeft(), desc_list, type_hint);
+        describe_expr(with_expr->GetLeft(), desc_list, type_hint);
     } else {
         std::cerr << "unhandled expression: ";
         expr->PrettyPrintXml(std::cerr, 100);
@@ -204,7 +208,7 @@ void instr_t::describe_expression(VeriExpression* expr,
 
 void instr_t::parse_expression(VeriExpression* expr, uint8_t dst_set) {
     id_desc_list_t desc_list;
-    describe_expression(expr, desc_list, dst_set);
+    describe_expr(expr, desc_list, dst_set);
 
     for (id_desc_t desc : desc_list) {
         if (desc.type == STATE_DEF) {
@@ -317,6 +321,31 @@ bool param_t::operator==(const instr_t& reference) {
     return false;
 }
 
+trigger_t::trigger_t(bb_t* parent, id_set_t& trigger_ids) : instr_t(parent)  {
+    id_set = trigger_ids;
+    def_set.insert(id_set.begin(), id_set.end());
+}
+
+void trigger_t::dump() {
+    std::cerr << "trigger:";
+
+    for (identifier_t id : id_set) {
+        std::cerr << " " << id;
+    }
+}
+
+id_set_t& trigger_t::trigger_ids() {
+    return id_set;
+}
+
+bool trigger_t::operator==(const instr_t& reference) {
+    if (const trigger_t* ref = dynamic_cast<const trigger_t*>(&reference)) {
+        return id_set == ref->id_set;
+    }
+
+    return false;
+}
+
 stmt_t::stmt_t(bb_t* parent, VeriStatement* __stmt) : instr_t(parent)  {
     stmt = __stmt;
     parse_statement(stmt);
@@ -385,7 +414,7 @@ void invoke_t::parse_invocation() {
 
     FOREACH_ARRAY_ITEM(mod_inst->GetPortConnects(), idx, connect) {
         id_desc_list_t desc_list;
-        describe_expression(connect->GetConnection(), desc_list, STATE_USE);
+        describe_expr(connect->GetConnection(), desc_list, STATE_USE);
 
         conn_t connection;
         connection.remote_endpoint = connect->GetNamedFormal();
@@ -585,6 +614,25 @@ void bb_t::set_entry_block(bb_t* block) {
 
 state_t bb_t::block_type() {
     return bb_type;
+}
+
+cmpr_t* bb_t::comparison() {
+    if (instr_list.size() == 0) {
+        return nullptr;
+    }
+
+    instr_t* last_instr = instr_list.back();
+    cmpr_t* comparison = dynamic_cast<cmpr_t*>(last_instr);
+
+    if (comparison == nullptr) {
+        return nullptr;
+    }
+
+    return comparison;
+}
+
+module_t* bb_t::parent() {
+    return containing_module;
 }
 
 module_t::module_t(VeriModule*& module) {
@@ -1229,6 +1277,24 @@ void module_t::process_statement(bb_t*& bb, VeriStatement* stmt) {
     } else if (auto event_ctrl = dynamic_cast<VeriEventControlStatement*>(stmt)) {
         /// "@" expression for specifying when to trigger some actions.
         /// useful for tracking timing and non-timing leakage.
+
+        id_set_t identifier_set;
+        VeriExpression* expr = nullptr;
+
+        FOREACH_ARRAY_ITEM(event_ctrl->GetAt(), idx, expr) {
+            if (expr != nullptr) {
+                id_desc_list_t desc_list;
+                instr_t::describe_expr(expr, desc_list, STATE_USE);
+
+                for (id_desc_t desc : desc_list) {
+                    identifier_set.insert(desc.name);
+                }
+            }
+        }
+
+        assert(bb->block_type() == BB_ALWAYS && "assumption failed!");
+        bb->append(new trigger_t(bb, identifier_set));
+
         process_statement(bb, event_ctrl->GetStmt());
     } else if (auto event_trigger = dynamic_cast<VeriEventTrigger*>(stmt)) {
         /// "->" or "->>" expression to specify an event to trigger.
@@ -1248,9 +1314,7 @@ void module_t::process_statement(bb_t*& bb, VeriStatement* stmt) {
         VeriStatement* __stmt = nullptr;
 
         FOREACH_ARRAY_ITEM(par_block->GetStatements(), idx, __stmt) {
-            if (__stmt != nullptr) {
-                process_statement(bb, __stmt);
-            }
+            process_statement(bb, __stmt);
         }
     } else if (auto seq_block = dynamic_cast<VeriSeqBlock*>(stmt)) {
         VeriStatement* __stmt = nullptr;
@@ -1298,10 +1362,49 @@ bool module_t::exists(bb_t* bb) {
 
 bool module_t::postdominates(bb_t* lo, bb_t* hi) {
     if (exists(lo) == false || exists(hi) == false) {
+        assert(hi != nullptr);
         assert(false && "non-existent blocks as input to postdominates!");
         return false;
     }
 
     bb_set_t& postdom_set = postdominators.at(hi);
     return postdom_set.find(lo) != postdom_set.end();
+}
+
+bb_t* module_t::immediate_dominator(bb_t* ref_bb) {
+    bb_map_t::iterator it = imm_dominator.find(ref_bb);
+    if (it == imm_dominator.end()) {
+        return nullptr;
+    }
+
+    return it->second;
+}
+
+bb_t* module_t::immediate_postdominator(bb_t* ref_bb) {
+    bb_map_t::iterator it = imm_postdominator.find(ref_bb);
+    if (it == imm_postdominator.end()) {
+        return nullptr;
+    }
+
+    return it->second;
+}
+
+void module_t::populate_guard_blocks(bb_t* ref_bb, bb_set_t& guard_blocks) {
+    bb_t* hi_block = ref_bb;
+    bb_t* entry_block = ref_bb->entry_block();
+
+    while (hi_block != entry_block) {
+        while (hi_block != nullptr && postdominates(ref_bb, hi_block)) {
+            hi_block = immediate_dominator(hi_block);
+        }
+
+        if (hi_block == nullptr) {
+            break;
+        }
+
+        guard_blocks.insert(hi_block);
+
+        // Continue upwards from the newly discovered condition block.
+        ref_bb = hi_block;
+    }
 }

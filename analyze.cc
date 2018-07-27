@@ -53,48 +53,128 @@ bool analyze_file(const char* filename) {
     return true;
 }
 
+enum {
+    DEP_TIMING = 0,
+    DEP_ORDINARY,
+};
+
+typedef struct tag_dependence_t {
+    state_t type;
+    identifier_t id;
+
+    const bool operator<(const struct tag_dependence_t& reference) const {
+        return id < reference.id;
+    }
+} dependence_t;
+
+typedef std::set<dependence_t> dep_set_t;
+
+void add_new_ids(id_set_t& ids, dep_set_t& workset, dep_set_t& seen_set,
+        state_t dependence_type) {
+    for (identifier_t id_use : ids) {
+        bool found = false;
+
+        for (dependence_t dependence : seen_set) {
+            if (dependence.id == id_use) {
+                found = true;
+                break;
+            }
+        }
+
+        if (found == false) {
+            dependence_t dependence = { dependence_type, id_use };
+            workset.insert(dependence);
+            seen_set.insert(dependence);
+        }
+    }
+}
+
+void gather_implicit_dependencies(instr_t* instr, dependence_t& dependence,
+        dep_set_t& workset, dep_set_t& seen_set) {
+    bb_t* bb = instr->parent();
+    module_t* module_ds = bb->parent();
+
+    bb_set_t guard_blocks;
+    module_ds->populate_guard_blocks(bb, guard_blocks);
+
+    for (bb_t* guard_block : guard_blocks) {
+        cmpr_t* comparison = guard_block->comparison();
+        assert(comparison != nullptr && "invalid comparison!");
+
+        add_new_ids(comparison->uses(), workset, seen_set, dependence.type);
+    }
+}
+
+void gather_timing_dependencies(instr_t* instr, dep_set_t& workset,
+        dep_set_t& seen_set) {
+    bb_t* bb = instr->parent();
+    bb_t* entry_block = bb->entry_block();
+    instr_list_t& instrs = entry_block->instrs();
+    assert(instrs.size() > 0 && "invalid basic block!");
+
+    instr_list_t::iterator it = instrs.begin();
+    instr_t* first_instr = *it;
+
+    trigger_t* trigger = dynamic_cast<trigger_t*>(first_instr);
+    assert(trigger != nullptr && "invalid always block!");
+
+    add_new_ids(trigger->trigger_ids(), workset, seen_set, DEP_TIMING);
+}
+
+bool gather_dependencies(instr_t* instr, dep_set_t& workset,
+        dep_set_t& seen_set, dependence_t& dependence) {
+    bb_t* bb = instr->parent();
+    bb_t* entry_bb = bb->entry_block();
+    module_t* module_ds = bb->parent();
+
+    // Gather explicit dependencies.
+    add_new_ids(instr->uses(), workset, seen_set, dependence.type);
+
+    // Gather implicit dependencies.
+    if (module_ds->postdominates(bb, entry_bb) == false) {
+        gather_implicit_dependencies(instr, dependence, workset, seen_set);
+    }
+
+    // Gather timing dependencies.
+    if (entry_bb->block_type() == BB_ALWAYS) {
+        if (dependence.type == DEP_TIMING) {
+            return true;
+        }
+
+        gather_timing_dependencies(instr, workset, seen_set);
+    }
+
+    return false;
+}
+
 void trace_definition(identifier_t identifier, module_t* module_ds) {
     module_ds->build_dominator_sets();
 
-    id_set_t trigger_ids;
+    dep_set_t workset;
+    dep_set_t seen_set;
 
-    id_set_t workset;
-    id_set_t seen_set;
-    workset.insert(identifier);
-    seen_set.insert(identifier);
+    dependence_t dependence = { DEP_ORDINARY, identifier };
+    workset.insert(dependence);
+    seen_set.insert(dependence);
+
+    bool timing_leak = false;
 
     do {
-        id_set_t::iterator it = workset.begin();
-        identifier_t id = *it;
+        dep_set_t::iterator it = workset.begin();
+        dependence_t dependence = *it;
 
         workset.erase(it);
+        instr_set_t& instr_set = module_ds->def_instrs(dependence.id);
 
-        instr_set_t& instr_set = module_ds->def_instrs(id);
         for (instr_t* instr : instr_set) {
-            bb_t* parent_bb = instr->parent();
-            bb_t* entry_bb = parent_bb->entry_block();
-
-            if (module_ds->postdominates(parent_bb, entry_bb) == false &&
-                    entry_bb->block_type() == BB_ALWAYS) {
-                trigger_ids.insert(id);
-            }
-
-            for (identifier_t id_use : instr->uses()) {
-                if (seen_set.find(id_use) == seen_set.end()) {
-                    workset.insert(id_use);
-                    seen_set.insert(id_use);
-                }
+            if (gather_dependencies(instr, workset, seen_set, dependence)) {
+                timing_leak = true;
             }
         }
-    } while (workset.size() > 0);
+    } while (timing_leak == false && workset.size() > 0);
 
-    if (trigger_ids.size() > 0) {
+    if (timing_leak == true) {
         std::cerr << "aaha!\n";
-        for (identifier_t id : trigger_ids) {
-            std::cerr << id << " ";
-        }
-
-        std::cerr << "\n";
     } else {
         std::cerr << "meh.\n";
     }
