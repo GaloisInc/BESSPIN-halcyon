@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cassert>
 #include <iostream>
 
@@ -251,18 +252,27 @@ char* name_gen(const char *__text, int state) {
         std::string text = std::string(__text);
 
         if (suffix == nullptr) {
+            std::transform(text.begin(), text.end(), text.begin(), ::tolower);
+
             for (module_map_t::iterator it = module_map.begin();
                     it != module_map.end(); it++) {
                 identifier_t module_name = it->first;
 
-                if (module_name.size() >= text.size() &&
-                        module_name.compare(0, text.size(), text) == 0) {
+                identifier_t lcase_name = module_name;
+                std::transform(lcase_name.begin(), lcase_name.end(),
+                        lcase_name.begin(), ::tolower);
+
+                if (lcase_name.size() >= text.size() &&
+                        lcase_name.compare(0, text.size(), text) == 0) {
                     matches.push_back(module_name);
                 }
             }
         } else {
             std::string module_name = text.substr(0, suffix - __text - 1);
+
             std::string field = std::string(suffix);
+            std::transform(field.begin(), field.end(), field.begin(),
+                    ::tolower);
 
             module_map_t::iterator it = module_map.find(module_name);
             if (it == module_map.end()) {
@@ -272,8 +282,12 @@ char* name_gen(const char *__text, int state) {
             module_t* module_ds = it->second;
 
             for (identifier_t port : module_ds->ports()) {
-                if (port.size() >= field.size() &&
-                        port.compare(0, field.size(), field) == 0) {
+                identifier_t lcase_port = port;
+                std::transform(lcase_port.begin(), lcase_port.end(),
+                        lcase_port.begin(), ::tolower);
+
+                if (lcase_port.size() >= field.size() &&
+                        lcase_port.compare(0, field.size(), field) == 0) {
                     matches.push_back(module_name + "." + port);
                 }
             }
