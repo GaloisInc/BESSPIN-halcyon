@@ -74,28 +74,29 @@ enum {
 typedef struct tag_dependence_t {
     state_t type;
     identifier_t id;
+    module_t* module_ds;
 
-    const bool operator<(const struct tag_dependence_t& reference) const {
-        return id < reference.id;
+    const bool operator<(const struct tag_dependence_t& ref) const {
+        return std::tie(module_ds, id) < std::tie(ref.module_ds, ref.id);
     }
 } dependence_t;
 
 typedef std::set<dependence_t> dep_set_t;
 
 void add_new_ids(id_set_t& ids, dep_set_t& workset, dep_set_t& seen_set,
-        state_t dependence_type) {
+        state_t dependence_type, module_t* module_ds) {
     for (identifier_t id_use : ids) {
         bool found = false;
 
         for (dependence_t dependence : seen_set) {
-            if (dependence.id == id_use) {
+            if (dependence.id == id_use && dependence.module_ds == module_ds) {
                 found = true;
                 break;
             }
         }
 
         if (found == false) {
-            dependence_t dependence = { dependence_type, id_use };
+            dependence_t dependence = { dependence_type, id_use, module_ds };
             workset.insert(dependence);
             seen_set.insert(dependence);
         }
@@ -114,7 +115,8 @@ void gather_implicit_dependencies(instr_t* instr, dependence_t& dependence,
         cmpr_t* comparison = guard_block->comparison();
         assert(comparison != nullptr && "invalid comparison!");
 
-        add_new_ids(comparison->uses(), workset, seen_set, dependence.type);
+        add_new_ids(comparison->uses(), workset, seen_set, dependence.type,
+                module_ds);
     }
 }
 
@@ -122,6 +124,8 @@ void gather_timing_dependencies(instr_t* instr, dep_set_t& workset,
         dep_set_t& seen_set) {
     bb_t* bb = instr->parent();
     bb_t* entry_block = bb->entry_block();
+    module_t* module_ds = entry_block->parent();
+
     instr_list_t& instrs = entry_block->instrs();
     assert(instrs.size() > 0 && "invalid basic block!");
 
@@ -131,7 +135,41 @@ void gather_timing_dependencies(instr_t* instr, dep_set_t& workset,
     trigger_t* trigger = dynamic_cast<trigger_t*>(first_instr);
     assert(trigger != nullptr && "invalid always block!");
 
-    add_new_ids(trigger->trigger_ids(), workset, seen_set, DEP_TIMING);
+    add_new_ids(trigger->trigger_ids(), workset, seen_set, DEP_TIMING,
+            module_ds);
+}
+
+void gather_inter_module_dependencies(invoke_t* invoke, dep_set_t& workset,
+        dep_set_t& seen_set, state_t dependence_type) {
+    module_map_t::iterator it = module_map.find(invoke->module_name());
+    assert(it != module_map.end() && "failed to find invoked module!");
+
+    module_t* module_ds = it->second;
+    id_list_t& ports = module_ds->ports();
+
+    // Find which arguments in the caller are tainted, then
+    // transfer taint to the corresponding arguments in the callee.
+    id_set_t new_taints;
+    unsigned counter = 0;
+
+    for (conn_t connection : invoke->connections()) {
+        for (identifier_t id : connection.id_set) {
+            for (dependence_t dependence : seen_set) {
+                if (dependence.id == id) {
+                    new_taints.insert(ports[counter]);
+                    break;
+                }
+            }
+        }
+
+        counter += 1;
+    }
+
+    if (new_taints.size() > 0) {
+        module_ds->build_dominator_sets();
+    }
+
+    add_new_ids(new_taints, workset, seen_set, dependence_type, module_ds);
 }
 
 bool gather_dependencies(instr_t* instr, dep_set_t& workset,
@@ -140,8 +178,13 @@ bool gather_dependencies(instr_t* instr, dep_set_t& workset,
     bb_t* entry_bb = bb->entry_block();
     module_t* module_ds = bb->parent();
 
+    if (invoke_t* invoke = dynamic_cast<invoke_t*>(instr)) {
+        gather_inter_module_dependencies(invoke, workset, seen_set,
+                dependence.type);
+    }
+
     // Gather explicit dependencies.
-    add_new_ids(instr->uses(), workset, seen_set, dependence.type);
+    add_new_ids(instr->uses(), workset, seen_set, dependence.type, module_ds);
 
     // Gather implicit dependencies.
     if (module_ds->postdominates(bb, entry_bb) == false) {
@@ -172,13 +215,15 @@ bool trace_timing_leak(identifier_t identifier, module_t* module_ds) {
     dep_set_t workset;
     dep_set_t seen_set;
 
-    dependence_t dependence = { DEP_ORDINARY, identifier };
+    dependence_t dependence = { DEP_ORDINARY, identifier, module_ds };
     workset.insert(dependence);
     seen_set.insert(dependence);
 
     do {
         dep_set_t::iterator it = workset.begin();
+
         dependence_t dependence = *it;
+        module_t* module_ds = dependence.module_ds;
 
         workset.erase(it);
         instr_set_t& instr_set = module_ds->def_instrs(dependence.id);
@@ -221,13 +266,12 @@ char* name_gen(const char *__text, int state) {
 
             module_map_t::iterator it = module_map.find(module_name);
             if (it == module_map.end()) {
-                std::cerr << "not found: " << module_name << "\n";
                 return nullptr;
             }
 
             module_t* module_ds = it->second;
 
-            for (identifier_t port : module_ds->output_ports()) {
+            for (identifier_t port : module_ds->ports()) {
                 if (port.size() >= field.size() &&
                         port.compare(0, field.size(), field) == 0) {
                     matches.push_back(module_name + "." + port);
@@ -262,7 +306,7 @@ void process_text(const char* __buffer) {
     const char* separator = strchr(__buffer, '.');
 
     if (separator == nullptr) {
-        std::cerr << "need <module>.<output-port>, found " << __buffer << "\n";
+        std::cerr << "need <module>.<port>, found " << __buffer << "\n";
         return;
     }
 
@@ -271,7 +315,7 @@ void process_text(const char* __buffer) {
     std::string field = std::string(separator + 1);
 
     module_map_t::iterator it = module_map.find(module_name);
-    assert(it != module_map.end() && "failed to find MulDiv module!");
+    assert(it != module_map.end() && "failed to find requested module!");
 
     if (trace_timing_leak(field, it->second) == true) {
         fprintf(stderr, "\r                                                 ");

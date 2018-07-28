@@ -253,7 +253,7 @@ class module_t {
 
     id_map_t def_map;
     id_map_t use_map;
-    id_set_t out_ports;
+    id_list_t arg_ports;
     id_state_map_t arg_states;
 
     state_t arg_state(identifier_t);
@@ -299,8 +299,8 @@ class module_t {
     bb_t* immediate_dominator(bb_t*);
     bb_t* immediate_postdominator(bb_t*);
 
+    id_list_t& ports();
     identifier_t name();
-    id_set_t& output_ports();
     instr_set_t& def_instrs(identifier_t);
     instr_set_t& use_instrs(identifier_t);
 

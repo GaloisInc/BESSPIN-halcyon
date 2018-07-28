@@ -11,10 +11,13 @@
 
 #include "structs.h"
 
-void balk(VeriTreeNode* tree_node, const std::string& msg) {
-    std::cerr << msg << " [" << tree_node << "]:\n";
-    tree_node->PrettyPrintXml(std::cerr, 100);
+void balk(VeriTreeNode* tree_node, const std::string& msg, const char* filename,
+        int line_number) {
+    fprintf(stderr, "\r                                                     ");
+    fprintf(stderr, "\r%s:%d   %s [node = %p]\n", filename, line_number,
+            msg.c_str(), tree_node);
 
+    tree_node->PrettyPrintXml(std::cerr, 100);
     assert(false && "unrecoverable error!");
 }
 
@@ -262,8 +265,7 @@ void instr_t::parse_statement(VeriStatement* stmt) {
         parse_expression(wait->GetCondition(), STATE_USE);
         parse_statement(wait->GetStmt());
     } else {
-        stmt->PrettyPrintXml(std::cerr, 100);
-        assert(false && "Unhandled instruction!");
+        balk(stmt, "unhandled instruction", __FILE__, __LINE__);
     }
 }
 
@@ -428,7 +430,7 @@ void invoke_t::parse_invocation() {
 }
 
 void invoke_t::dump() {
-    std::cerr << "remote module name: " << mod_name << "\n";
+    std::cerr << "remote module: " << mod_name << ": ";
     mod_inst->PrettyPrint(std::cerr, 100);
 }
 
@@ -947,7 +949,7 @@ bool module_t::process_connection(conn_t& connection, invoke_t* invocation) {
 
         def_map[id].insert(invocation);
     }
-    
+
     if (connection.state & STATE_DEF) {
         for (const identifier_t& id : connection.id_set) {
             use_map[id].insert(invocation);
@@ -1091,11 +1093,9 @@ void module_t::process_module_ports(Array* port_connects) {
         FOREACH_ARRAY_ITEM(decl->GetIds(), idx, arg_id) {
             identifier_t id = arg_id->GetName();
 
-            if (state & STATE_USE) {
-                out_ports.insert(id);
-            }
-
             add_arg(id, state);
+            arg_ports.push_back(id);
+
             arg_bb->append(new arg_t(arg_bb, id, state));
         }
     }
@@ -1116,24 +1116,18 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
             dynamic_cast<VeriOperatorBinding*>(module_item) != nullptr ||
             dynamic_cast<VeriPropertyDecl*>(module_item) != nullptr ||
             dynamic_cast<VeriSequenceDecl*>(module_item) != nullptr) {
-        balk(module_item, "SystemVerilog node");
+        balk(module_item, "SystemVerilog node", __FILE__, __LINE__);
     } else if (dynamic_cast<VeriCoverageOption*>(module_item) != nullptr ||
             dynamic_cast<VeriCoverageSpec*>(module_item) != nullptr ||
             dynamic_cast<VeriDefaultDisableIff*>(module_item) != nullptr ||
             dynamic_cast<VeriGateInstantiation*>(module_item) != nullptr ||
-            dynamic_cast<VeriGenerateBlock*>(module_item) != nullptr ||
-            dynamic_cast<VeriGenerateCase*>(module_item) != nullptr ||
-            dynamic_cast<VeriGenerateConditional*>(module_item) != nullptr ||
-            dynamic_cast<VeriGenerateConstruct*>(module_item) != nullptr ||
-            dynamic_cast<VeriGenerateFor*>(module_item) != nullptr ||
             dynamic_cast<VeriPathDecl*>(module_item) != nullptr ||
             dynamic_cast<VeriPulseControl*>(module_item) != nullptr ||
             dynamic_cast<VeriSpecifyBlock*>(module_item) != nullptr ||
             dynamic_cast<VeriSystemTimingCheck*>(module_item) != nullptr ||
             dynamic_cast<VeriTable*>(module_item) != nullptr ||
-            dynamic_cast<VeriTaskDecl*>(module_item) != nullptr ||
             dynamic_cast<VeriTimeUnit*>(module_item) != nullptr) {
-        balk(module_item, "unhandled node");
+        balk(module_item, "unhandled node", __FILE__, __LINE__);
     } else if (auto always = dynamic_cast<VeriAlwaysConstruct*>(module_item)) {
         bb_t* bb = create_empty_bb("always", BB_ALWAYS);
         process_statement(bb, always->GetStmt());
@@ -1181,6 +1175,13 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
 
         module_map.emplace(function_name, module_ds);
     */
+    /* } else if (dynamic_cast<VeriGenerateConditional*>(module_item) != nullptr ||
+            dynamic_cast<VeriGenerateConstruct*>(module_item) != nullptr ||
+            dynamic_cast<VeriGenerateCase*>(module_item) != nullptr ||
+            dynamic_cast<VeriGenerateFor*>(module_item) != nullptr ||
+            dynamic_cast<VeriGenerateBlock*>(module_item) != nullptr) {
+        ; // XXX: Ignore.
+    */
     } else if (auto initial = dynamic_cast<VeriInitialConstruct*>(module_item)) {
         bb_t* bb = create_empty_bb("initial", BB_INITIAL);
         process_statement(bb, initial->GetStmt());
@@ -1218,8 +1219,10 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
     } else if (auto stmt = dynamic_cast<VeriStatement*>(module_item)) {
         bb_t* bb = create_empty_bb(".dangling", BB_DANGLING);
         process_statement(bb, stmt);
+    } else if (dynamic_cast<VeriTaskDecl*>(module_item) != nullptr) {
+        ; // Ignore
     } else {
-        balk(module_item, "unhandled node");
+        balk(module_item, "unhandled node", __FILE__, __LINE__);
     }
 }
 
@@ -1232,9 +1235,9 @@ void module_t::process_statement(bb_t*& bb, VeriStatement* stmt) {
             dynamic_cast<VeriSequentialInstantiation*>(stmt) != nullptr ||
             dynamic_cast<VeriWaitOrder*>(stmt) != nullptr ||
             dynamic_cast<VeriWithStmt*>(stmt) != nullptr) {
-        balk(stmt, "SystemVerilog node");
+        balk(stmt, "SystemVerilog node", __FILE__, __LINE__);
     } else if (dynamic_cast<VeriNullStatement*>(stmt)) {
-        balk(stmt, "unhandled node");
+        balk(stmt, "unhandled node", __FILE__, __LINE__);
     } else if (auto assign_stmt = dynamic_cast<VeriAssign*>(stmt)) {
         /// "assign" inside an always block.
         bb->append(new stmt_t(bb, assign_stmt));
@@ -1326,33 +1329,39 @@ void module_t::process_statement(bb_t*& bb, VeriStatement* stmt) {
         VeriStatement* __stmt = nullptr;
 
         FOREACH_ARRAY_ITEM(seq_block->GetStatements(), idx, __stmt) {
-            if (__stmt != nullptr) {
-                process_statement(bb, __stmt);
-            }
+            process_statement(bb, __stmt);
         }
     } else if (auto sys_task = dynamic_cast<VeriSystemTaskEnable*>(stmt)) {
         /// used for generating inputs and output, ignore.
-    } else if (auto task = dynamic_cast<VeriTaskEnable*>(stmt)) {
+    } else if (dynamic_cast<VeriTaskEnable*>(stmt) != nullptr) {
         /// similar to system tasks, ignore?
     } else if (auto wait = dynamic_cast<VeriWait*>(stmt)) {
         /// "wait" keyword for waiting for an expression to be true.
         /// useful for tracking timing leakage.
         bb->append(new stmt_t(bb, wait));
     } else {
-        balk(stmt, "unhandled node");
+        balk(stmt, "unhandled node", __FILE__, __LINE__);
     }
 }
 
 instr_set_t& module_t::def_instrs(identifier_t identifier) {
     id_map_t::iterator it = def_map.find(identifier);
-    assert(it != def_map.end() && "failed to find def for requested id!");
+
+    if (it == def_map.end()) {
+        std::cerr << "id: \"" << identifier << "\"\n";
+        assert(false && "failed to find def for requested id!");
+    }
 
     return it->second;
 }
 
 instr_set_t& module_t::use_instrs(identifier_t identifier) {
     id_map_t::iterator it = use_map.find(identifier);
-    assert(it != use_map.end() && "failed to find use for requested id!");
+
+    if (it == use_map.end()) {
+        std::cerr << "id: \"" << identifier << "\"\n";
+        assert(false && "failed to find use for requested id!");
+    }
 
     return it->second;
 }
@@ -1415,6 +1424,6 @@ void module_t::populate_guard_blocks(bb_t* ref_bb, bb_set_t& guard_blocks) {
     }
 }
 
-id_set_t& module_t::output_ports() {
-    return out_ports;
+id_list_t& module_t::ports() {
+    return arg_ports;
 }
