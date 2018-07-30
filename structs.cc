@@ -11,6 +11,8 @@
 
 #include "structs.h"
 
+/*! \brief catch-all error routine
+ */
 void balk(VeriTreeNode* tree_node, const std::string& msg, const char* filename,
         int line_number) {
     fprintf(stderr, "\r                                                     ");
@@ -29,6 +31,8 @@ instr_t::~instr_t() {
     containing_bb = nullptr;
 }
 
+/*! \brief parse expression and record identifiers and their use.
+ */
 void instr_t::describe_expr(VeriExpression* expr, id_desc_list_t& desc_list,
         uint8_t type_hint) {
     if (expr == nullptr) {
@@ -136,7 +140,7 @@ void instr_t::describe_expr(VeriExpression* expr, id_desc_list_t& desc_list,
             describe_expr(expression, desc_list, type_hint);
         }
     } else if (dynamic_cast<VeriFunctionCall*>(expr) != nullptr) {
-        // handle later when we match the call with the function definition.
+        // TODO: handle later when we match the call with the definition.
     } else if (auto id_ref = dynamic_cast<VeriIdRef*>(expr)) {
         id_desc_t desc = { id_ref->GetName(), type_hint };
         desc_list.push_back(desc);
@@ -269,14 +273,20 @@ void instr_t::parse_statement(VeriStatement* stmt) {
     }
 }
 
+/*! \brief basic block that contains this instruction.
+ */
 bb_t* instr_t::parent() {
     return containing_bb;
 }
 
+/*! \brief set of identifiers defined by this instruction.
+ */
 id_set_t& instr_t::defs() {
     return def_set;
 }
 
+/*! \brief set of identifiers used by this instruction.
+ */
 id_set_t& instr_t::uses() {
     return use_set;
 }
@@ -294,6 +304,8 @@ arg_t::arg_t(bb_t* parent, identifier_t name, state_t state) : instr_t(parent) {
     }
 }
 
+/*! \brief print instruction to the console (stderr).
+ */
 void arg_t::dump() {
     std::cerr << "arg: " << arg_name << " [ " << arg_state << " ]";
 }
@@ -311,6 +323,8 @@ param_t::param_t(bb_t* parent, identifier_t name) : instr_t(parent)  {
     def_set.insert(param_name);
 }
 
+/*! \brief print instruction to the console (stderr).
+ */
 void param_t::dump() {
     std::cerr << "param: " << param_name;
 }
@@ -328,6 +342,8 @@ trigger_t::trigger_t(bb_t* parent, id_set_t& trigger_ids) : instr_t(parent)  {
     def_set.insert(id_set.begin(), id_set.end());
 }
 
+/*! \brief print instruction to the console (stderr).
+ */
 void trigger_t::dump() {
     std::cerr << "trigger:";
 
@@ -357,6 +373,8 @@ VeriStatement* stmt_t::statement() {
     return stmt;
 }
 
+/*! \brief print instruction to the console (stderr).
+ */
 void stmt_t::dump() {
     stmt->PrettyPrint(std::cerr, 100);
 }
@@ -380,6 +398,8 @@ VeriNetRegAssign* assign_t::assignment() {
     return assign;
 }
 
+/*! \brief print instruction to the console (stderr).
+ */
 void assign_t::dump() {
     assign->PrettyPrint(std::cerr, 100);
 }
@@ -429,6 +449,8 @@ void invoke_t::parse_invocation() {
     }
 }
 
+/*! \brief print instruction to the console (stderr).
+ */
 void invoke_t::dump() {
     std::cerr << "remote module: " << mod_name << ": ";
     mod_inst->PrettyPrint(std::cerr, 100);
@@ -451,6 +473,8 @@ VeriExpression* cmpr_t::comparison() {
     return cmpr;
 }
 
+/*! \brief print instruction to the console (stderr).
+ */
 void cmpr_t::dump() {
     cmpr->PrettyPrint(std::cerr, 100);
 }
@@ -501,11 +525,15 @@ bool bb_t::add_predecessor(bb_t* predecessor) {
     return true;
 }
 
+/*! \brief check whether an instruction is already present in the basic block.
+ */
 bool bb_t::exists(instr_t* instr) {
     return std::find(instr_list.begin(), instr_list.end(), instr) !=
         instr_list.end();
 }
 
+/*! \brief add instruction to the end of the basic block.
+ */
 bool bb_t::append(instr_t* new_instr) {
     if (exists(new_instr) == true) {
         assert(false && "instruction already exists or is a comparison!");
@@ -516,6 +544,8 @@ bool bb_t::append(instr_t* new_instr) {
     return true;
 }
 
+/*! \brief set the first successor basic block.
+ */
 bool bb_t::set_left_successor(bb_t*& successor) {
     if (successor == nullptr) {
         assert(false && "empty successor pointer!");
@@ -536,6 +566,8 @@ bool bb_t::set_left_successor(bb_t*& successor) {
     return true;
 }
 
+/*! \brief set the second successor basic block.
+ */
 bool bb_t::set_right_successor(bb_t*& successor) {
     if (successor == nullptr) {
         assert(false && "empty successor pointer!");
@@ -556,30 +588,44 @@ bool bb_t::set_right_successor(bb_t*& successor) {
     return true;
 }
 
+/*! \brief first successor basic block.
+ */
 bb_t* bb_t::left_successor() {
     return successor_left;
 }
 
+/*! \brief second successor basic block.
+ */
 bb_t* bb_t::right_successor() {
     return successor_right;
 }
 
+/*! \brief instructions in the basic block.
+ */
 instr_list_t& bb_t::instrs() {
     return instr_list;
 }
 
+/*! \brief list of predecessors of this basic block.
+ */
 bb_set_t& bb_t::preds() {
     return predecessors;
 }
 
+/*! \brief count of predecessors of this basic block.
+ */
 uint64_t bb_t::pred_count() {
     return predecessors.size();
 }
 
+/*! \brief count of successors of this basic block.
+ */
 uint64_t bb_t::succ_count() {
     return (successor_left != nullptr) + (successor_right != nullptr);
 }
 
+/*! \brief print basic block to the console (stderr).
+ */
 void bb_t::dump() {
     if (predecessors.size() == 0) {
         std::cerr << "-T- ";
@@ -602,22 +648,41 @@ void bb_t::dump() {
     }
 }
 
+/*! \brief the entry basic block that eventually leads to this basic block.
+ *
+ * Verilog permits multiple "entry points" into the code (always blocks,
+ * initialization blocks, continuous assignments, etc.  This function returns
+ * the pointer to the basic block that is the entry point for reaching this
+ * basic block.
+ */
 bb_t* bb_t::entry_block() {
     return entry_bb;
 }
 
+/*! \brief name of this basic block.
+ */
 identifier_t bb_t::name() {
     return bb_name;
 };
 
+/*! \brief set the entry block for this basic block.
+ */
 void bb_t::set_entry_block(bb_t* block) {
     entry_bb = block;
 }
 
+/*! \brief type of this basic block
+ *
+ * The analysis code processes basic blocks differently based on whether they
+ * represent sequential control flow or triggered execution.
+ */
 state_t bb_t::block_type() {
     return bb_type;
 }
 
+/*! \brief comparison operation used to decide the successor of this basic
+ * block.
+ */
 cmpr_t* bb_t::comparison() {
     if (instr_list.size() == 0) {
         return nullptr;
@@ -633,6 +698,8 @@ cmpr_t* bb_t::comparison() {
     return comparison;
 }
 
+/*! \brief pointer to the module that contains this basic block.
+ */
 module_t* bb_t::parent() {
     return containing_module;
 }
@@ -654,6 +721,8 @@ module_t::~module_t() {
     basicblocks.clear();
 }
 
+/*! \brief name of this module.
+ */
 identifier_t module_t::name() {
     return mod_name;
 }
@@ -676,6 +745,9 @@ bb_t* module_t::create_empty_bb(identifier_t name, state_t bb_type) {
     return new_block;
 }
 
+/*! \brief print module's basic blocks to the console (stderr).
+ *
+ */
 void module_t::dump() {
     for (bb_t* bb : basicblocks) {
         bb->dump();
@@ -903,10 +975,12 @@ void module_t::build_dominator_sets(bb_set_t& reachable) {
     }
 }
 
+/*! \brief find the dominator and postdominators of each basic block.
+ *
+ * For simplicity, we use the O(V^2) iterative algorithm.  The Lengauer-Tarjan
+ * Dominator Tree Algorithm will almost surely improve analysis performance.
+ */
 void module_t::build_dominator_sets() {
-    // TODO: For simplicity, we use the O(V^2) algorithm.  The Lengauer-Tarjan
-    // Dominator Tree Algorithm will likely improve the analysis performance.
-
     for (bb_t* bb : top_level_blocks) {
         assert(bb->pred_count() == 0 && "not a top-level block!");
 
@@ -916,6 +990,8 @@ void module_t::build_dominator_sets() {
     }
 }
 
+/*! \brief find the definitions and uses of each instruction in this module.
+ */
 void module_t::build_def_use_chains() {
     for (bb_t* bb : basicblocks) {
         for (instr_t* instr : bb->instrs()) {
@@ -978,6 +1054,8 @@ void module_t::resolve_invoke(invoke_t* invocation, module_map_t& module_map) {
     }
 }
 
+/*! \brief match module invocations with module definitions.
+ */
 void module_t::resolve_links(module_map_t& module_map) {
     for (bb_t* bb : basicblocks) {
         for (instr_t* instr : bb->instrs()) {
@@ -1035,10 +1113,6 @@ uint8_t module_t::arg_state(identifier_t name) {
     }
 
     return it->second;
-}
-
-void module_t::set_function() {
-    is_function = true;
 }
 
 void module_t::process_module_items(Array* module_items) {
@@ -1148,7 +1222,7 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
         identifier_t function_name = veri_name->GetName();
 
         module_t* module_ds = new module_t(function_name);
-        module_ds->set_function();
+        module_ds->is_function = true;
 
         bb_t* arg_bb = module_ds->create_empty_bb("args", BB_ARGS);
 
@@ -1205,7 +1279,7 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
     } else if (auto def_param = dynamic_cast<VeriDefParam*>(module_item)) {
         // TODO
     } else if (auto module = dynamic_cast<VeriModule*>(module_item)) {
-        // TOOD: process_module(module);
+        // TODO
     } else if (auto inst = dynamic_cast<VeriModuleInstantiation*>(module_item)) {
         bb_t* bb = create_empty_bb("instantiation", BB_ORDINARY);
 
@@ -1344,6 +1418,8 @@ void module_t::process_statement(bb_t*& bb, VeriStatement* stmt) {
     }
 }
 
+/*! \brief instructions that define the requested identifier.
+ */
 instr_set_t& module_t::def_instrs(identifier_t identifier) {
     id_map_t::iterator it = def_map.find(identifier);
 
@@ -1355,6 +1431,8 @@ instr_set_t& module_t::def_instrs(identifier_t identifier) {
     return it->second;
 }
 
+/*! \brief instructions that use the requested identifier.
+ */
 instr_set_t& module_t::use_instrs(identifier_t identifier) {
     id_map_t::iterator it = use_map.find(identifier);
 
@@ -1366,15 +1444,21 @@ instr_set_t& module_t::use_instrs(identifier_t identifier) {
     return it->second;
 }
 
+/*! \brief don't use this basic block as an entry basic block.
+ */
 void module_t::remove_from_top_level_blocks(bb_t* bb) {
     top_level_blocks.erase(bb);
 }
 
+/*! \brief check whether this basic block already exists in the module.
+ */
 bool module_t::exists(bb_t* bb) {
     return std::find(basicblocks.begin(), basicblocks.end(), bb) !=
         basicblocks.end();
 }
 
+/*! \brief check whether 'lo' postdominates 'hi'.
+ */
 bool module_t::postdominates(bb_t* lo, bb_t* hi) {
     if (exists(lo) == false || exists(hi) == false) {
         assert(hi != nullptr);
@@ -1386,6 +1470,8 @@ bool module_t::postdominates(bb_t* lo, bb_t* hi) {
     return postdom_set.find(lo) != postdom_set.end();
 }
 
+/*! \brief retrieve immediate dominators of 'ref_bb'.
+ */
 bb_t* module_t::immediate_dominator(bb_t* ref_bb) {
     bb_map_t::iterator it = imm_dominator.find(ref_bb);
     if (it == imm_dominator.end()) {
@@ -1395,6 +1481,8 @@ bb_t* module_t::immediate_dominator(bb_t* ref_bb) {
     return it->second;
 }
 
+/*! \brief retrieve immediate postdominators of 'ref_bb'.
+ */
 bb_t* module_t::immediate_postdominator(bb_t* ref_bb) {
     bb_map_t::iterator it = imm_postdominator.find(ref_bb);
     if (it == imm_postdominator.end()) {
@@ -1404,6 +1492,8 @@ bb_t* module_t::immediate_postdominator(bb_t* ref_bb) {
     return it->second;
 }
 
+/*! \brief find basic blocks that guard the execution of this basic blocks.
+ */
 void module_t::populate_guard_blocks(bb_t* ref_bb, bb_set_t& guard_blocks) {
     bb_t* hi_block = ref_bb;
     bb_t* entry_block = ref_bb->entry_block();
@@ -1424,10 +1514,14 @@ void module_t::populate_guard_blocks(bb_t* ref_bb, bb_set_t& guard_blocks) {
     }
 }
 
+/*! \brief list of ports (or arguments) used by this module.
+ */
 id_list_t& module_t::ports() {
     return arg_ports;
 }
 
+/*! \brief check whether the requested identifier is among the ports.
+ */
 bool module_t::is_port(identifier_t id) {
     return std::find(arg_ports.begin(), arg_ports.end(), id) != arg_ports.end();
 }

@@ -122,6 +122,8 @@ bool dep_analysis_t::gather_dependencies(instr_t* instr,
     return timing_leakage;
 }
 
+/*! \brief analyze the requested fieldname for leakage.
+ */
 bool dep_analysis_t::trace_timing_leak(identifier_t module_name,
         identifier_t identifier, module_map_t& module_map) {
     arg_set.clear();
@@ -166,6 +168,8 @@ bool dep_analysis_t::trace_timing_leak(identifier_t module_name,
     return timing_leakage;
 }
 
+/*! \brief list of module ports that are leaked.
+ */
 id_set_t& dep_analysis_t::leaking_args() {
     return arg_set;
 }

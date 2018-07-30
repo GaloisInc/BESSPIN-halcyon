@@ -72,6 +72,9 @@ typedef struct {
 
 typedef std::list<id_desc_t> id_desc_list_t;
 
+/*!
+ * Instruction (abstract) class.
+ */
 class instr_t {
   private:
     bb_t* containing_bb;
@@ -97,6 +100,9 @@ class instr_t {
     virtual bool operator==(const instr_t&) = 0;
 };
 
+/*!
+ * Class that represents a module port.
+ */
 class arg_t : public instr_t {
   private:
     state_t arg_state;
@@ -110,6 +116,9 @@ class arg_t : public instr_t {
     virtual bool operator==(const instr_t&);
 };
 
+/*!
+ * Class that represents a parameter constant.
+ */
 class param_t : public instr_t {
   private:
     identifier_t param_name;
@@ -122,6 +131,9 @@ class param_t : public instr_t {
     virtual bool operator==(const instr_t&);
 };
 
+/*!
+ * Class that represents identifiers used as triggers in 'always' blocks.
+ */
 class trigger_t : public instr_t {
   private:
     id_set_t id_set;
@@ -136,6 +148,9 @@ class trigger_t : public instr_t {
     virtual bool operator==(const instr_t&);
 };
 
+/*!
+ * Class that represents a generic statement.
+ */
 class stmt_t : public instr_t {
   private:
     VeriStatement* stmt;
@@ -149,6 +164,12 @@ class stmt_t : public instr_t {
     virtual bool operator==(const instr_t&);
 };
 
+/*!
+ * Class that represents a continuous assignment.
+ *
+ * We need a class that is separate from stmt_t since the underlying Verific
+ * object is not of the VeriStatement* type.
+ */
 class assign_t : public instr_t {
   private:
     VeriNetRegAssign* assign;
@@ -162,6 +183,9 @@ class assign_t : public instr_t {
     virtual bool operator==(const instr_t&);
 };
 
+/*!
+ * Class that represents a module instantiation.
+ */
 class invoke_t : public instr_t {
   private:
     conn_list_t conns;
@@ -179,6 +203,10 @@ class invoke_t : public instr_t {
     virtual bool operator==(const instr_t&);
 };
 
+/*!
+ * Class that represents an expression used as predicate in if-statements and
+ * loops.
+ */
 class cmpr_t : public instr_t {
   private:
     VeriExpression* cmpr;
@@ -192,6 +220,9 @@ class cmpr_t : public instr_t {
     virtual bool operator==(const instr_t&);
 };
 
+/*!
+ * Class that represents a basic block.
+ */
 class bb_t {
   private:
     bb_t* entry_bb;
@@ -236,6 +267,9 @@ class bb_t {
     void set_entry_block(bb_t*);
 };
 
+/*!
+ * Class that represents a module.
+ */
 class module_t {
   private:
     bool is_function;
@@ -275,7 +309,6 @@ class module_t {
     bb_t* find_imm_dominator(bb_t*, bb_set_t&);
     bb_t* find_imm_postdominator(bb_t*, bb_set_t&);
 
-    void set_function();
     void print_undef_ids();
     void add_arg(identifier_t, state_t);
     void build_dominator_sets(bb_set_t&);
