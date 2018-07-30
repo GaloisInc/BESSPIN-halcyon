@@ -1,5 +1,5 @@
 CXX = g++
-OBJECTS = structs.o analyze.o
+OBJECTS = structs.o analyze.o dependence.o
 
 VERIFIC_ROOT = ..
 

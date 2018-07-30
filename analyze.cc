@@ -15,6 +15,7 @@
 #include <VeriStatement.h>
 
 #include "structs.h"
+#include "dependence.h"
 
 using namespace Verific;
 module_map_t module_map;
@@ -65,178 +66,6 @@ bool analyze_file(const char* filename) {
     }
 
     return true;
-}
-
-enum {
-    DEP_TIMING = 0,
-    DEP_ORDINARY,
-};
-
-typedef struct tag_dependence_t {
-    state_t type;
-    identifier_t id;
-    module_t* module_ds;
-
-    const bool operator<(const struct tag_dependence_t& ref) const {
-        return std::tie(module_ds, id) < std::tie(ref.module_ds, ref.id);
-    }
-} dependence_t;
-
-typedef std::set<dependence_t> dep_set_t;
-
-void add_new_ids(id_set_t& ids, dep_set_t& workset, dep_set_t& seen_set,
-        state_t dependence_type, module_t* module_ds) {
-    for (identifier_t id_use : ids) {
-        bool found = false;
-
-        for (dependence_t dependence : seen_set) {
-            if (dependence.id == id_use && dependence.module_ds == module_ds) {
-                found = true;
-                break;
-            }
-        }
-
-        if (found == false) {
-            dependence_t dependence = { dependence_type, id_use, module_ds };
-            workset.insert(dependence);
-            seen_set.insert(dependence);
-        }
-    }
-}
-
-void gather_implicit_dependencies(instr_t* instr, dependence_t& dependence,
-        dep_set_t& workset, dep_set_t& seen_set) {
-    bb_t* bb = instr->parent();
-    module_t* module_ds = bb->parent();
-
-    bb_set_t guard_blocks;
-    module_ds->populate_guard_blocks(bb, guard_blocks);
-
-    for (bb_t* guard_block : guard_blocks) {
-        cmpr_t* comparison = guard_block->comparison();
-        assert(comparison != nullptr && "invalid comparison!");
-
-        add_new_ids(comparison->uses(), workset, seen_set, dependence.type,
-                module_ds);
-    }
-}
-
-void gather_timing_dependencies(instr_t* instr, dep_set_t& workset,
-        dep_set_t& seen_set) {
-    bb_t* bb = instr->parent();
-    bb_t* entry_block = bb->entry_block();
-    module_t* module_ds = entry_block->parent();
-
-    instr_list_t& instrs = entry_block->instrs();
-    assert(instrs.size() > 0 && "invalid basic block!");
-
-    instr_list_t::iterator it = instrs.begin();
-    instr_t* first_instr = *it;
-
-    trigger_t* trigger = dynamic_cast<trigger_t*>(first_instr);
-    assert(trigger != nullptr && "invalid always block!");
-
-    add_new_ids(trigger->trigger_ids(), workset, seen_set, DEP_TIMING,
-            module_ds);
-}
-
-void gather_inter_module_dependencies(invoke_t* invoke, dep_set_t& workset,
-        dep_set_t& seen_set, state_t dependence_type) {
-    module_map_t::iterator it = module_map.find(invoke->module_name());
-    assert(it != module_map.end() && "failed to find invoked module!");
-
-    module_t* module_ds = it->second;
-    id_list_t& ports = module_ds->ports();
-
-    // Find which arguments in the caller are tainted, then
-    // transfer taint to the corresponding arguments in the callee.
-    id_set_t new_taints;
-    unsigned counter = 0;
-
-    for (conn_t connection : invoke->connections()) {
-        for (identifier_t id : connection.id_set) {
-            for (dependence_t dependence : seen_set) {
-                if (dependence.id == id) {
-                    new_taints.insert(ports[counter]);
-                    break;
-                }
-            }
-        }
-
-        counter += 1;
-    }
-
-    if (new_taints.size() > 0) {
-        module_ds->build_dominator_sets();
-    }
-
-    add_new_ids(new_taints, workset, seen_set, dependence_type, module_ds);
-}
-
-bool gather_dependencies(instr_t* instr, dep_set_t& workset,
-        dep_set_t& seen_set, dependence_t& dependence) {
-    bb_t* bb = instr->parent();
-    bb_t* entry_bb = bb->entry_block();
-    module_t* module_ds = bb->parent();
-
-    if (invoke_t* invoke = dynamic_cast<invoke_t*>(instr)) {
-        gather_inter_module_dependencies(invoke, workset, seen_set,
-                dependence.type);
-    }
-
-    // Gather explicit dependencies.
-    add_new_ids(instr->uses(), workset, seen_set, dependence.type, module_ds);
-
-    // Gather implicit dependencies.
-    if (module_ds->postdominates(bb, entry_bb) == false) {
-        gather_implicit_dependencies(instr, dependence, workset, seen_set);
-    }
-
-    // Gather timing dependencies.
-    if (entry_bb->block_type() == BB_ALWAYS) {
-        if (dependence.type == DEP_TIMING) {
-            return true;
-        }
-
-        gather_timing_dependencies(instr, workset, seen_set);
-    }
-
-    return false;
-}
-
-bool trace_timing_leak(identifier_t identifier, module_t* module_ds) {
-    fprintf(stderr, "\r                                                     ");
-    fprintf(stderr, "\rbuilding dominator trees ... ");
-
-    module_ds->build_dominator_sets();
-
-    fprintf(stderr, "\r                                                     ");
-    fprintf(stderr, "\rtracing definitions ... ");
-
-    dep_set_t workset;
-    dep_set_t seen_set;
-
-    dependence_t dependence = { DEP_ORDINARY, identifier, module_ds };
-    workset.insert(dependence);
-    seen_set.insert(dependence);
-
-    do {
-        dep_set_t::iterator it = workset.begin();
-
-        dependence_t dependence = *it;
-        module_t* module_ds = dependence.module_ds;
-
-        workset.erase(it);
-        instr_set_t& instr_set = module_ds->def_instrs(dependence.id);
-
-        for (instr_t* instr : instr_set) {
-            if (gather_dependencies(instr, workset, seen_set, dependence)) {
-                return true;
-            }
-        }
-    } while (workset.size() > 0);
-
-    return false;
 }
 
 const char* suffix = nullptr;
@@ -324,16 +153,27 @@ void process_text(const char* __buffer) {
         return;
     }
 
+    dep_analysis_t dep_analysis;
+
     std::string buffer(__buffer);
-    std::string module_name = buffer.substr(0, separator - __buffer);
+    std::string mod_name = buffer.substr(0, separator - __buffer);
     std::string field = std::string(separator + 1);
 
-    module_map_t::iterator it = module_map.find(module_name);
-    assert(it != module_map.end() && "failed to find requested module!");
-
-    if (trace_timing_leak(field, it->second) == true) {
+    if (dep_analysis.trace_timing_leak(mod_name, field, module_map) == true) {
         fprintf(stderr, "\r                                                 ");
-        fprintf(stderr, "\rfound timing leak.\n");
+        fprintf(stderr, "\rfound timing leak");
+
+        id_set_t& args = dep_analysis.leaking_args();
+
+        if (args.size() > 0) {
+            std::cerr << ", leaking information about:";
+
+            for (identifier_t id : args) {
+                std::cerr << " " << id;
+            }
+        }
+
+        std::cerr << "\n";
     } else {
         fprintf(stderr, "\r                                                 ");
         fprintf(stderr, "\rdid not find timing leak.\n");

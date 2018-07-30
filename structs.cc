@@ -1427,3 +1427,7 @@ void module_t::populate_guard_blocks(bb_t* ref_bb, bb_set_t& guard_blocks) {
 id_list_t& module_t::ports() {
     return arg_ports;
 }
+
+bool module_t::is_port(identifier_t id) {
+    return std::find(arg_ports.begin(), arg_ports.end(), id) != arg_ports.end();
+}

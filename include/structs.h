@@ -305,6 +305,7 @@ class module_t {
     instr_set_t& use_instrs(identifier_t);
 
     bool exists(bb_t*);
+    bool is_port(identifier_t);
     bool postdominates(bb_t* source, bb_t* sink);
 };
 
