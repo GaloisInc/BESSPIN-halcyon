@@ -1277,7 +1277,14 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
             }
         }
     } else if (auto def_param = dynamic_cast<VeriDefParam*>(module_item)) {
-        // TODO
+        unsigned idx = 0;
+        VeriDefParamAssign* param_assign = nullptr;
+        bb_t* bb_params = create_empty_bb("params", BB_PARAMS);
+
+        FOREACH_ARRAY_ITEM(def_param->GetDefParamAssigns(), idx, param_assign) {
+            identifier_t name = param_assign->GetLVal()->GetName();
+            bb_params->append(new param_t(bb_params, name));
+        }
     } else if (auto module = dynamic_cast<VeriModule*>(module_item)) {
         // TODO
     } else if (auto inst = dynamic_cast<VeriModuleInstantiation*>(module_item)) {
