@@ -309,7 +309,6 @@ class module_t {
     bb_t* find_imm_dominator(bb_t*, bb_set_t&);
     bb_t* find_imm_postdominator(bb_t*, bb_set_t&);
 
-    void print_undef_ids();
     void add_arg(identifier_t, state_t);
     void build_dominator_sets(bb_set_t&);
     void update_arg(identifier_t, state_t);
@@ -323,6 +322,7 @@ class module_t {
     module_t(const module_t&);
 
     void dump();
+    void print_undef_ids();
     void build_def_use_chains();
     void build_dominator_sets();
     void resolve_links(module_map_t&);
