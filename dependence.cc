@@ -6,7 +6,8 @@ void dep_analysis_t::add_new_ids(id_set_t& ids, state_t dependence_type,
         bool found = false;
 
         for (dependence_t dependence : seen_set) {
-            if (dependence.id == id && dependence.module_ds == module_ds) {
+            if (dependence.id == id && dependence.module_ds == module_ds &&
+                    dependence.type == dependence_type) {
                 found = true;
                 break;
             }
@@ -14,7 +15,11 @@ void dep_analysis_t::add_new_ids(id_set_t& ids, state_t dependence_type,
 
         if (found == false) {
             if (module_ds->is_port(id)) {
-                arg_set.insert(module_ds->name() + "." + id);
+                if (dependence_type == DEP_TIMING) {
+                    timing_deps.insert(module_ds->name() + "." + id);
+                } else {
+                    non_timing_deps.insert(module_ds->name() + "." + id);
+                }
             }
 
             dependence_t dependence = { dependence_type, id, module_ds };
@@ -25,7 +30,7 @@ void dep_analysis_t::add_new_ids(id_set_t& ids, state_t dependence_type,
 }
 
 void dep_analysis_t::gather_implicit_dependencies(instr_t* instr,
-        dependence_t& dependence) {
+        state_t& dependence_type) {
     bb_t* bb = instr->parent();
     module_t* module_ds = bb->parent();
 
@@ -36,7 +41,7 @@ void dep_analysis_t::gather_implicit_dependencies(instr_t* instr,
         cmpr_t* comparison = guard_block->comparison();
         assert(comparison != nullptr && "invalid comparison!");
 
-        add_new_ids(comparison->uses(), dependence.type, module_ds);
+        add_new_ids(comparison->uses(), dependence_type, module_ds);
     }
 }
 
@@ -107,7 +112,7 @@ bool dep_analysis_t::gather_dependencies(instr_t* instr,
 
     // Gather implicit dependencies.
     if (module_ds->postdominates(bb, entry_bb) == false) {
-        gather_implicit_dependencies(instr, dependence);
+        gather_implicit_dependencies(instr, dependence.type);
     }
 
     // Gather timing dependencies.
@@ -124,11 +129,13 @@ bool dep_analysis_t::gather_dependencies(instr_t* instr,
 
 /*! \brief analyze the requested fieldname for leakage.
  */
-bool dep_analysis_t::trace_timing_leak(identifier_t module_name,
+bool dep_analysis_t::compute_dependencies(identifier_t module_name,
         identifier_t identifier, module_map_t& module_map) {
-    arg_set.clear();
     workset.clear();
     seen_set.clear();
+
+    timing_deps.clear();
+    non_timing_deps.clear();
 
     module_map_t::iterator it = module_map.find(module_name);
     assert(it != module_map.end() && "failed to find requested module!");
@@ -147,8 +154,6 @@ bool dep_analysis_t::trace_timing_leak(identifier_t module_name,
     workset.insert(dependence);
     seen_set.insert(dependence);
 
-    bool timing_leakage = false;
-
     do {
         dep_set_t::iterator it = workset.begin();
 
@@ -159,17 +164,21 @@ bool dep_analysis_t::trace_timing_leak(identifier_t module_name,
         instr_set_t& instr_set = module_ds->def_instrs(dependence.id);
 
         for (instr_t* instr : instr_set) {
-            if (gather_dependencies(instr, dependence, module_map)) {
-                timing_leakage = true;
-            }
+            gather_dependencies(instr, dependence, module_map);
         }
     } while (workset.size() > 0);
 
-    return timing_leakage;
+    return timing_deps.size() > 0 || non_timing_deps.size() > 0;
 }
 
-/*! \brief list of module ports that are leaked.
+/*! \brief list of module ports that are leaked through timing channels.
  */
-id_set_t& dep_analysis_t::leaking_args() {
-    return arg_set;
+id_set_t& dep_analysis_t::leaking_timing_deps() {
+    return timing_deps;
+}
+
+/*! \brief list of module ports that are leaked through non-timing channels.
+ */
+id_set_t& dep_analysis_t::leaking_non_timing_deps() {
+    return non_timing_deps;
 }

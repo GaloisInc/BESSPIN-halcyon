@@ -20,6 +20,16 @@
 using namespace Verific;
 module_map_t module_map;
 
+void clear_status() {
+    std::cerr << "\r                                                        ";
+    std::cerr << "\r";
+}
+
+void update_status(const char* string) {
+    std::cerr << "\r                                                        ";
+    std::cerr << "\r" << string;
+}
+
 void destroy_module_map() {
     for (auto it = module_map.begin(); it != module_map.end(); it++) {
         module_t* module_ds = it->second;
@@ -35,16 +45,14 @@ unsigned parse_modules() {
     MapIter map_iter;
     VeriModule* module = nullptr;
 
-    fprintf(stderr, "\r                                                     ");
-    fprintf(stderr, "\rparsing module(s) ... ");
+    update_status("parsing module(s) ... ");
 
     FOREACH_VERILOG_MODULE(map_iter, module) {
         module_t* module_ds = new module_t(module);
         module_map.emplace(module_ds->name(), module_ds);
     }
 
-    fprintf(stderr, "\r                                                     ");
-    fprintf(stderr, "\rbuilding def-use chains ... ");
+    update_status("building def-use chains ... ");
 
     for (auto it = module_map.begin(); it != module_map.end(); it++) {
         module_t* module_ds = it->second;
@@ -53,9 +61,7 @@ unsigned parse_modules() {
         module_ds->build_def_use_chains();
     }
 
-    fprintf(stderr, "\r                                                     ");
-    fprintf(stderr, "\r");
-
+    clear_status();
     return module_map.size();
 }
 
@@ -159,24 +165,34 @@ void process_text(const char* __buffer) {
     std::string mod_name = buffer.substr(0, separator - __buffer);
     std::string field = std::string(separator + 1);
 
-    if (dep_analysis.trace_timing_leak(mod_name, field, module_map) == true) {
-        fprintf(stderr, "\r                                                 ");
-        fprintf(stderr, "\rfound timing leak");
+    if (dep_analysis.compute_dependencies(mod_name, field, module_map)) {
+        id_set_t& timing_deps = dep_analysis.leaking_timing_deps();
 
-        id_set_t& args = dep_analysis.leaking_args();
+        if (timing_deps.size() > 0) {
+            clear_status();
+            std::cerr << "timing leak:";
 
-        if (args.size() > 0) {
-            std::cerr << ", leaking information about:";
-
-            for (identifier_t id : args) {
+            for (identifier_t id : timing_deps) {
                 std::cerr << " " << id;
             }
+
+            std::cerr << "\n";
         }
 
-        std::cerr << "\n";
+        id_set_t& non_timing_deps = dep_analysis.leaking_non_timing_deps();
+
+        if (non_timing_deps.size() > 0) {
+            clear_status();
+            std::cerr << "non-timing leak:";
+
+            for (identifier_t id : non_timing_deps) {
+                std::cerr << " " << id;
+            }
+
+            std::cerr << "\n";
+        }
     } else {
-        fprintf(stderr, "\r                                                 ");
-        fprintf(stderr, "\rdid not find timing leak.\n");
+        update_status("did not find any leakage.\n");
     }
 }
 
