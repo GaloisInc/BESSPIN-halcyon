@@ -52,15 +52,6 @@ unsigned parse_modules() {
         module_map.emplace(module_ds->name(), module_ds);
     }
 
-    update_status("building def-use chains ... ");
-
-    for (auto it = module_map.begin(); it != module_map.end(); it++) {
-        module_t* module_ds = it->second;
-
-        module_ds->resolve_links(module_map);
-        module_ds->build_def_use_chains();
-    }
-
     clear_status();
     return module_map.size();
 }
@@ -197,14 +188,26 @@ void process_text(const char* __buffer) {
 }
 
 int main(int argc, char **argv) {
-    if (argc != 2) {
-        std::cerr << "USAGE: " << argv[0] << " verilog-file";
+    if (argc < 2) {
+        std::cerr << "USAGE: " << argv[0] << " verilog-files";
         return 1;
     }
 
-    const char* filename = argv[1];
-    analyze_file(filename);
-    parse_modules();
+    bool terminate = false;
+
+    for (unsigned idx = 1; idx < argc; idx += 1) {
+        analyze_file(argv[idx]);
+        parse_modules();
+    }
+
+    update_status("building def-use chains ... ");
+
+    for (auto it = module_map.begin(); it != module_map.end(); it++) {
+        module_t* module_ds = it->second;
+
+        module_ds->resolve_links(module_map);
+        module_ds->build_def_use_chains();
+    }
 
     rl_attempted_completion_function = complete_text;
 
