@@ -207,8 +207,10 @@ int main(int argc, char **argv) {
 
         module_ds->resolve_links(module_map);
         module_ds->build_def_use_chains();
+        module_ds->print_undef_ids();
     }
 
+    clear_status();
     rl_attempted_completion_function = complete_text;
 
     char* buffer = nullptr;

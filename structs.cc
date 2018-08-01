@@ -33,7 +33,7 @@ instr_t::~instr_t() {
 
 /*! \brief parse expression and record identifiers and their use.
  */
-void instr_t::describe_expr(VeriExpression* expr, id_desc_list_t& desc_list,
+void util_t::describe_expr(VeriExpression* expr, id_desc_list_t& desc_list,
         uint8_t type_hint) {
     if (expr == nullptr) {
         return;
@@ -215,13 +215,13 @@ void instr_t::describe_expr(VeriExpression* expr, id_desc_list_t& desc_list,
 
 void instr_t::parse_expression(VeriExpression* expr, uint8_t dst_set) {
     id_desc_list_t desc_list;
-    describe_expr(expr, desc_list, dst_set);
+    util_t::describe_expr(expr, desc_list, dst_set);
 
     for (id_desc_t desc : desc_list) {
         if (desc.type == STATE_DEF) {
-            def_set.insert(desc.name);
+            add_def(desc.name);
         } else if (desc.type == STATE_USE) {
-            use_set.insert(desc.name);
+            add_use(desc.name);
         } else {
             std::cerr << "[u] " << desc.name << "\n";
             assert(false && "invalid destination!");
@@ -232,7 +232,9 @@ void instr_t::parse_expression(VeriExpression* expr, uint8_t dst_set) {
 void instr_t::parse_statement(VeriStatement* stmt) {
     assert(stmt != nullptr && "null statement!");
 
-    if (auto assign = dynamic_cast<VeriAssign*>(stmt)) {
+    if (util_t::ignored_statement(stmt)) {
+        ;
+    } else if (auto assign = dynamic_cast<VeriAssign*>(stmt)) {
         parse_expression(assign->GetAssign()->GetLValExpr(), STATE_DEF);
         parse_expression(assign->GetAssign()->GetRValExpr(), STATE_USE);
     } else if (auto blocking = dynamic_cast<VeriBlockingAssign*>(stmt)) {
@@ -257,8 +259,6 @@ void instr_t::parse_statement(VeriStatement* stmt) {
         }
     } else if (auto de_assign = dynamic_cast<VeriDeAssign*>(stmt)) {
         parse_expression(de_assign->GetLVal(), STATE_DEF);
-    } else if (auto disable = dynamic_cast<VeriDisable*>(stmt)) {
-        ;
     } else if (auto event_trigger = dynamic_cast<VeriEventTrigger*>(stmt)) {
         parse_expression(event_trigger->GetControl(), STATE_USE);
         parse_expression(event_trigger->GetEventName(), STATE_DEF);
@@ -268,6 +268,38 @@ void instr_t::parse_statement(VeriStatement* stmt) {
     } else if (auto wait = dynamic_cast<VeriWait*>(stmt)) {
         parse_expression(wait->GetCondition(), STATE_USE);
         parse_statement(wait->GetStmt());
+    } else if (auto seq_block = dynamic_cast<VeriSeqBlock*>(stmt)) {
+        pinstr_t* pinstr = new pinstr_t(this, stmt);
+        pinstrs.push_back(pinstr);
+
+    } else if (dynamic_cast<VeriConditionalStatement*>(stmt) != nullptr) {
+        module_t* module_ds = this->parent()->parent();
+
+        // FIXME: Wrap this basic block and its successors into an instruction.
+        bb_t* new_bb = module_ds->create_empty_bb("nested", BB_NESTED, true);
+
+        new_bb->append(new cmpr_t(new_bb, stmt->GetIfExpr()));
+        bb_t* merge_bb = module_ds->create_empty_bb("merge", BB_ORDINARY, true);
+
+        bb_t* then_bb = module_ds->create_empty_bb("then", BB_ORDINARY, true);
+        new_bb->set_left_successor(then_bb);
+
+        module_ds->process_statement(then_bb, stmt->GetThenStmt());
+        then_bb->set_left_successor(merge_bb);
+
+        VeriStatement* inner_statement = stmt->GetElseStmt();
+        if (inner_statement != nullptr) {
+            bb_t* else_bb = module_ds->create_empty_bb("else", BB_ORDINARY,
+                    true);
+
+            new_bb->set_right_successor(else_bb);
+
+            module_ds->process_statement(else_bb, inner_statement);
+            else_bb->set_left_successor(merge_bb);
+        }
+    } else if (auto delay_control = dynamic_cast<VeriDelayControlStatement*>(stmt)) {
+        parse_expression(delay_control->GetDelay(), STATE_USE);
+        parse_statement(delay_control->GetStmt());
     } else {
         balk(stmt, "unhandled instruction", __FILE__, __LINE__);
     }
@@ -291,23 +323,32 @@ id_set_t& instr_t::uses() {
     return use_set;
 }
 
+void instr_t::add_def(identifier_t def_id) {
+    def_set.insert(def_id);
+}
+
+void instr_t::add_use(identifier_t use_id) {
+    use_set.insert(use_id);
+}
+
 arg_t::arg_t(bb_t* parent, identifier_t name, state_t state) : instr_t(parent) {
     arg_name = name;
     arg_state = state;
 
     if (state & STATE_DEF) {
-        def_set.insert(arg_name);
+        add_def(arg_name);
     }
 
     if (state & STATE_USE) {
-        use_set.insert(arg_name);
+        add_use(arg_name);
     }
 }
 
 /*! \brief print instruction to the console (stderr).
  */
 void arg_t::dump() {
-    std::cerr << "arg: " << arg_name << " [ " << arg_state << " ]";
+    std::cerr << "arg: " << arg_name << " [ " << arg_state << " ] in module " <<
+            parent()->parent()->name() << "\n";
 }
 
 bool arg_t::operator==(const instr_t& reference) {
@@ -320,13 +361,14 @@ bool arg_t::operator==(const instr_t& reference) {
 
 param_t::param_t(bb_t* parent, identifier_t name) : instr_t(parent)  {
     param_name = name;
-    def_set.insert(param_name);
+    add_def(param_name);
 }
 
 /*! \brief print instruction to the console (stderr).
  */
 void param_t::dump() {
-    std::cerr << "param: " << param_name;
+    std::cerr << "param: " << param_name << " in module " <<
+            parent()->parent()->name() << "\n";
 }
 
 bool param_t::operator==(const instr_t& reference) {
@@ -350,6 +392,8 @@ void trigger_t::dump() {
     for (identifier_t id : id_set) {
         std::cerr << " " << id;
     }
+
+    std::cerr << " in module " << parent()->parent()->name() << "\n";
 }
 
 id_set_t& trigger_t::trigger_ids() {
@@ -377,6 +421,7 @@ VeriStatement* stmt_t::statement() {
  */
 void stmt_t::dump() {
     stmt->PrettyPrint(std::cerr, 100);
+    std::cerr << " in module " << parent()->parent()->name() << "\n";
 }
 
 bool stmt_t::operator==(const instr_t& reference) {
@@ -402,6 +447,7 @@ VeriNetRegAssign* assign_t::assignment() {
  */
 void assign_t::dump() {
     assign->PrettyPrint(std::cerr, 100);
+    std::cerr << " in module " << parent()->parent()->name() << "\n";
 }
 
 bool assign_t::operator==(const instr_t& reference) {
@@ -436,7 +482,7 @@ void invoke_t::parse_invocation() {
 
     FOREACH_ARRAY_ITEM(mod_inst->GetPortConnects(), idx, connect) {
         id_desc_list_t desc_list;
-        describe_expr(connect->GetConnection(), desc_list, STATE_USE);
+        util_t::describe_expr(connect->GetConnection(), desc_list, STATE_USE);
 
         conn_t connection;
         connection.remote_endpoint = connect->GetNamedFormal();
@@ -454,6 +500,7 @@ void invoke_t::parse_invocation() {
 void invoke_t::dump() {
     std::cerr << "remote module: " << mod_name << ": ";
     mod_inst->PrettyPrint(std::cerr, 100);
+    std::cerr << " in module " << parent()->parent()->name() << "\n";
 }
 
 identifier_t invoke_t::module_name() {
@@ -477,6 +524,7 @@ VeriExpression* cmpr_t::comparison() {
  */
 void cmpr_t::dump() {
     cmpr->PrettyPrint(std::cerr, 100);
+    std::cerr << " in module " << parent()->parent()->name() << "\n";
 }
 
 bool cmpr_t::operator==(const instr_t& reference) {
@@ -485,6 +533,42 @@ bool cmpr_t::operator==(const instr_t& reference) {
     }
 
     return false;
+}
+
+pinstr_t::pinstr_t(instr_t* parent, VeriStatement* __stmt) {
+    stmt = __stmt;
+    containing_instr = parent;
+
+    module_t* module_ds = parent->parent()->parent();
+    bb_t* new_bb = module_ds->create_empty_bb("nested", BB_NESTED, true);
+
+    module_ds->process_statement(new_bb, stmt);
+
+    // Copy defs and uses from all instructions within this statement.
+    bb_set_t reachable_bbs;
+    util_t::build_reachable_set(new_bb, reachable_bbs);
+
+    for (bb_t* bb : reachable_bbs) {
+        for (instr_t* instr : bb->instrs()) {
+            for (identifier_t def_id : instr->defs()) {
+                parent->add_def(def_id);
+            }
+
+            for (identifier_t use_id : instr->uses()) {
+                parent->add_use(use_id);
+            }
+        }
+    }
+}
+
+/*! \brief print instruction to the console (stderr).
+ */
+void pinstr_t::dump() {
+    stmt->PrettyPrint(std::cerr, 100);
+
+    bb_t* bb = containing_instr->parent();
+    module_t* module_ds = bb->parent();
+    std::cerr << " in module " << module_ds->name() << "\n";
 }
 
 bb_t::bb_t(module_t* parent, const identifier_t& __name, state_t __bb_type) {
@@ -727,16 +811,14 @@ identifier_t module_t::name() {
     return mod_name;
 }
 
-bb_t* module_t::create_empty_bb(identifier_t name, state_t bb_type) {
-    // create key if necessary.
-    uint32_t counter = bb_id_map[name];
-    bb_id_map[name] = counter + 1;
+bb_t* module_t::create_empty_bb(identifier_t name, state_t bb_type,
+        bool floating) {
+    identifier_t bb_name = make_unique_bb_id(name);
+    bb_t* new_block = new bb_t(this, bb_name, bb_type);
 
-    char bb_name[1024];
-    snprintf(bb_name, sizeof(bb_name), "bb.%s.%u", name.c_str(), counter);
-
-    bb_t* new_block = new bb_t(this, std::string(bb_name), bb_type);
-    basicblocks.push_back(new_block);
+    if (floating == false) {
+        basicblocks.push_back(new_block);
+    }
 
     // Mark this as a top-level block for now,
     // but fix it if we make it a successor block.
@@ -752,38 +834,6 @@ void module_t::dump() {
     for (bb_t* bb : basicblocks) {
         bb->dump();
     }
-}
-
-uint64_t module_t::build_reachable_set(bb_t*& start_bb, bb_set_t& reachable) {
-    bb_set_t workset;
-    reachable.clear();
-
-    workset.insert(start_bb);
-    reachable.insert(start_bb);
-    start_bb->set_entry_block(start_bb);
-
-    do {
-        bb_set_t::iterator it = workset.begin();
-        bb_t* work_item = *it;
-        workset.erase(it);
-
-        bb_t* left = work_item->left_successor();
-        bb_t* right = work_item->right_successor();
-
-        if (left != nullptr && reachable.find(left) == reachable.end()) {
-            workset.insert(left);
-            reachable.insert(left);
-            left->set_entry_block(start_bb);
-        }
-
-        if (right != nullptr && reachable.find(right) == reachable.end()) {
-            workset.insert(right);
-            reachable.insert(right);
-            right->set_entry_block(start_bb);
-        }
-    } while (workset.size() > 0);
-
-    return reachable.size();
 }
 
 void module_t::intersect(bb_set_t& dst_set, bb_set_t& src_set) {
@@ -985,7 +1035,7 @@ void module_t::build_dominator_sets() {
         assert(bb->pred_count() == 0 && "not a top-level block!");
 
         bb_set_t reachable;
-        build_reachable_set(bb, reachable);
+        util_t::build_reachable_set(bb, reachable);
         build_dominator_sets(reachable);
     }
 }
@@ -1015,15 +1065,17 @@ bool module_t::process_connection(conn_t& connection, invoke_t* invocation) {
     // IMPORTANT: When processing connections, we flip the def and use flags.
 
     if (connection.state & STATE_USE) {
-        if (connection.id_set.size() != 1) {
+        if (connection.id_set.size() > 1) {
             assert(false && "simultaneous definition of more than one id!");
             return false;
         }
 
-        id_set_t::iterator it = connection.id_set.begin();
-        const identifier_t& id = *it;
+        if (connection.id_set.size() == 1) {
+            id_set_t::iterator it = connection.id_set.begin();
+            const identifier_t& id = *it;
 
-        def_map[id].insert(invocation);
+            def_map[id].insert(invocation);
+        }
     }
 
     if (connection.state & STATE_DEF) {
@@ -1040,7 +1092,9 @@ void module_t::resolve_invoke(invoke_t* invocation, module_map_t& module_map) {
     module_map_t::iterator it = module_map.find(mod_name);
 
     if (it == module_map.end()) {
-        std::cerr << "referred module: " << mod_name << "\n";
+        std::cerr << "referred module: " << mod_name << " in module " <<
+                name() << "\n";
+
         assert(false && "found reference to undefined module!");
         return;
     }
@@ -1089,11 +1143,23 @@ void module_t::print_undef_ids() {
     }
 
     if (undef_ids.size() > 0) {
-        std::cerr << "undefined identifiers in module " << mod_name << ":\n";
+        std::cerr << "\nfound " << undef_ids.size() << " undefined " <<
+                "identifiers in module " << mod_name << "\n\t";
+
+        unsigned col = 0;
 
         for (identifier_t id : undef_ids) {
-            std::cerr << "  " << id << "\n";
+            if (col + id.size() + 1 > 80) {
+                col = 0;
+                std::cerr << "\n\t" << id;
+            } else {
+                std::cerr << id << " ";
+            }
+
+            col += id.size();
         }
+
+        std::cerr << "\n";
     }
 }
 
@@ -1136,7 +1202,7 @@ void module_t::process_module_params(Array* params) {
     unsigned idx = 0;
     VeriIdDef* id_def = nullptr;
 
-    bb_t* bb_params = create_empty_bb("params", BB_PARAMS);
+    bb_t* bb_params = create_empty_bb("params", BB_PARAMS, false);
 
     FOREACH_ARRAY_ITEM(params, idx, id_def) {
         bb_params->append(new param_t(bb_params, id_def->GetName()));
@@ -1150,7 +1216,7 @@ void module_t::process_module_ports(Array* port_connects) {
 
     unsigned idx = 0;
     VeriAnsiPortDecl* decl = nullptr;
-    bb_t* arg_bb = create_empty_bb("args", BB_ARGS);
+    bb_t* arg_bb = create_empty_bb("args", BB_ARGS, false);
 
     FOREACH_ARRAY_ITEM(port_connects, idx, decl) {
         uint8_t state = STATE_UNKNOWN;
@@ -1203,10 +1269,10 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
             dynamic_cast<VeriTimeUnit*>(module_item) != nullptr) {
         balk(module_item, "unhandled node", __FILE__, __LINE__);
     } else if (auto always = dynamic_cast<VeriAlwaysConstruct*>(module_item)) {
-        bb_t* bb = create_empty_bb("always", BB_ALWAYS);
+        bb_t* bb = create_empty_bb("always", BB_ALWAYS, false);
         process_statement(bb, always->GetStmt());
     } else if (auto continuous = dynamic_cast<VeriContinuousAssign*>(module_item)) {
-        bb_t* bb = create_empty_bb("cassign", BB_CONT_ASSIGNMENT);
+        bb_t* bb = create_empty_bb("cassign", BB_CONT_ASSIGNMENT, false);
 
         /// "assign" outside an "always" block.
         uint32_t idx = 0;
@@ -1224,7 +1290,7 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
         module_t* module_ds = new module_t(function_name);
         module_ds->is_function = true;
 
-        bb_t* arg_bb = module_ds->create_empty_bb("args", BB_ARGS);
+        bb_t* arg_bb = module_ds->create_empty_bb("args", BB_ARGS, false);
 
         uint32_t idx = 0;
         VeriAnsiPortDecl* decl = nullptr;
@@ -1257,7 +1323,7 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
         ; // XXX: Ignore.
     */
     } else if (auto initial = dynamic_cast<VeriInitialConstruct*>(module_item)) {
-        bb_t* bb = create_empty_bb("initial", BB_INITIAL);
+        bb_t* bb = create_empty_bb("initial", BB_INITIAL, false);
         process_statement(bb, initial->GetStmt());
     } else if (auto decl = dynamic_cast<VeriDataDecl*>(module_item)) {
         unsigned idx = 0;
@@ -1279,7 +1345,7 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
     } else if (auto def_param = dynamic_cast<VeriDefParam*>(module_item)) {
         unsigned idx = 0;
         VeriDefParamAssign* param_assign = nullptr;
-        bb_t* bb_params = create_empty_bb("params", BB_PARAMS);
+        bb_t* bb_params = create_empty_bb("params", BB_PARAMS, false);
 
         FOREACH_ARRAY_ITEM(def_param->GetDefParamAssigns(), idx, param_assign) {
             identifier_t name = param_assign->GetLVal()->GetName();
@@ -1288,7 +1354,7 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
     } else if (auto module = dynamic_cast<VeriModule*>(module_item)) {
         // TODO
     } else if (auto inst = dynamic_cast<VeriModuleInstantiation*>(module_item)) {
-        bb_t* bb = create_empty_bb("instantiation", BB_ORDINARY);
+        bb_t* bb = create_empty_bb("instantiation", BB_ORDINARY, false);
 
         uint32_t idx = 0;
         VeriInstId* module_instance = nullptr;
@@ -1298,7 +1364,7 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
             bb->append(new invoke_t(bb, module_instance, module_name));
         }
     } else if (auto stmt = dynamic_cast<VeriStatement*>(module_item)) {
-        bb_t* bb = create_empty_bb(".dangling", BB_DANGLING);
+        bb_t* bb = create_empty_bb(".dangling", BB_DANGLING, false);
         process_statement(bb, stmt);
     } else if (dynamic_cast<VeriTaskDecl*>(module_item) != nullptr) {
         ; // Ignore
@@ -1310,34 +1376,17 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
 void module_t::process_statement(bb_t*& bb, VeriStatement* stmt) {
     unsigned idx = 0;
 
-    if (dynamic_cast<VeriAssertion*>(stmt) != nullptr ||
-            dynamic_cast<VeriJumpStatement*>(stmt) != nullptr ||
-            dynamic_cast<VeriRandsequence*>(stmt) != nullptr ||
-            dynamic_cast<VeriSequentialInstantiation*>(stmt) != nullptr ||
-            dynamic_cast<VeriWaitOrder*>(stmt) != nullptr ||
-            dynamic_cast<VeriWithStmt*>(stmt) != nullptr) {
-        balk(stmt, "SystemVerilog node", __FILE__, __LINE__);
-    } else if (dynamic_cast<VeriNullStatement*>(stmt)) {
-        balk(stmt, "unhandled node", __FILE__, __LINE__);
-    } else if (auto assign_stmt = dynamic_cast<VeriAssign*>(stmt)) {
-        /// "assign" inside an always block.
-        bb->append(new stmt_t(bb, assign_stmt));
-    } else if (auto blocking_assign = dynamic_cast<VeriBlockingAssign*>(stmt)) {
-        /// assignment using "=" without the assign keyword
-        bb->append(new stmt_t(bb, blocking_assign));
-    } else if (auto case_stmt = dynamic_cast<VeriCaseStatement*>(stmt)) {
-        bb->append(new stmt_t(bb, case_stmt));
-    } else if (auto code_block = dynamic_cast<VeriCodeBlock*>(stmt)) {
-        VeriStatement* __stmt = nullptr;
+    if (util_t::ignored_statement(stmt) == true) {
+        ;
+    } else if (util_t::ordinary_statement(stmt) == true) {
+        bb->append(new stmt_t(bb, stmt));
+    } else if (dynamic_cast<VeriConditionalStatement*>(stmt) != nullptr) {
+        bool floating = exists(bb) == false;
 
-        FOREACH_ARRAY_ITEM(code_block->GetStatements(), idx, __stmt) {
-            process_statement(bb, __stmt);
-        }
-    } else if (auto cond_stmt = dynamic_cast<VeriConditionalStatement*>(stmt)) {
-        bb->append(new cmpr_t(bb, cond_stmt->GetIfExpr()));
-        bb_t* merge_bb = create_empty_bb("merge", BB_ORDINARY);
+        bb->append(new cmpr_t(bb, stmt->GetIfExpr()));
+        bb_t* merge_bb = create_empty_bb("merge", BB_ORDINARY, floating);
 
-        bb_t* then_bb = create_empty_bb("then", BB_ORDINARY);
+        bb_t* then_bb = create_empty_bb("then", BB_ORDINARY, floating);
         bb->set_left_successor(then_bb);
 
         process_statement(then_bb, stmt->GetThenStmt());
@@ -1345,7 +1394,7 @@ void module_t::process_statement(bb_t*& bb, VeriStatement* stmt) {
 
         VeriStatement* inner_statement = stmt->GetElseStmt();
         if (inner_statement != nullptr) {
-            bb_t* else_bb = create_empty_bb("else", BB_ORDINARY);
+            bb_t* else_bb = create_empty_bb("else", BB_ORDINARY, floating);
             bb->set_right_successor(else_bb);
 
             process_statement(else_bb, inner_statement);
@@ -1353,17 +1402,6 @@ void module_t::process_statement(bb_t*& bb, VeriStatement* stmt) {
         }
 
         bb = merge_bb;
-    } else if (auto de_assign_stmt = dynamic_cast<VeriDeAssign*>(stmt)) {
-        /// "deassign" keyword to undo the last blocking assignment.
-        bb->append(new stmt_t(bb, de_assign_stmt));
-    } else if (auto delay_control = dynamic_cast<VeriDelayControlStatement*>(stmt)) {
-        /// "#" followed by the delay followed by a statement.
-        /// useful for tracking timing leakage.
-        bb->append(new stmt_t(bb, delay_control));
-    } else if (auto disable_stmt = dynamic_cast<VeriDisable*>(stmt)) {
-        /// "disable" keyword for jumping to a specific point in the code.
-        /// useful for tracking timing leakage.
-        bb->append(new stmt_t(bb, disable_stmt));
     } else if (auto event_ctrl = dynamic_cast<VeriEventControlStatement*>(stmt)) {
         /// "@" expression for specifying when to trigger some actions.
         /// useful for tracking timing and non-timing leakage.
@@ -1374,7 +1412,7 @@ void module_t::process_statement(bb_t*& bb, VeriStatement* stmt) {
         FOREACH_ARRAY_ITEM(event_ctrl->GetAt(), idx, expr) {
             if (expr != nullptr) {
                 id_desc_list_t desc_list;
-                instr_t::describe_expr(expr, desc_list, STATE_USE);
+                util_t::describe_expr(expr, desc_list, STATE_USE);
 
                 for (id_desc_t desc : desc_list) {
                     identifier_set.insert(desc.name);
@@ -1386,40 +1424,14 @@ void module_t::process_statement(bb_t*& bb, VeriStatement* stmt) {
         bb->append(new trigger_t(bb, identifier_set));
 
         process_statement(bb, event_ctrl->GetStmt());
-    } else if (auto event_trigger = dynamic_cast<VeriEventTrigger*>(stmt)) {
-        /// "->" or "->>" expression to specify an event to trigger.
-        /// useful for tracking timing and non-timing leakage.
-        bb->append(new stmt_t(bb, event_trigger));
-    } else if (auto force = dynamic_cast<VeriForce*>(stmt)) {
-        /// used only during simulation (SystemVerilog?), ignore for now.
-        // TODO
-    } else if (auto gen_var_assign = dynamic_cast<VeriGenVarAssign*>(stmt)) {
-        // TODO
-    } else if (auto loop = dynamic_cast<VeriLoop*>(stmt)) {
-        // TODO
-    } else if (auto non_blocking_assign = dynamic_cast<VeriNonBlockingAssign*>(stmt)) {
-        /// assignment using "<=" without the assign keyword
-        bb->append(new stmt_t(bb, non_blocking_assign));
-    } else if (auto par_block = dynamic_cast<VeriParBlock*>(stmt)) {
+    } else if (dynamic_cast<VeriParBlock*>(stmt) != nullptr ||
+            dynamic_cast<VeriSeqBlock*>(stmt) != nullptr ||
+            dynamic_cast<VeriCodeBlock*>(stmt) != nullptr) {
         VeriStatement* __stmt = nullptr;
 
-        FOREACH_ARRAY_ITEM(par_block->GetStatements(), idx, __stmt) {
+        FOREACH_ARRAY_ITEM(stmt->GetStatements(), idx, __stmt) {
             process_statement(bb, __stmt);
         }
-    } else if (auto seq_block = dynamic_cast<VeriSeqBlock*>(stmt)) {
-        VeriStatement* __stmt = nullptr;
-
-        FOREACH_ARRAY_ITEM(seq_block->GetStatements(), idx, __stmt) {
-            process_statement(bb, __stmt);
-        }
-    } else if (auto sys_task = dynamic_cast<VeriSystemTaskEnable*>(stmt)) {
-        /// used for generating inputs and output, ignore.
-    } else if (dynamic_cast<VeriTaskEnable*>(stmt) != nullptr) {
-        /// similar to system tasks, ignore?
-    } else if (auto wait = dynamic_cast<VeriWait*>(stmt)) {
-        /// "wait" keyword for waiting for an expression to be true.
-        /// useful for tracking timing leakage.
-        bb->append(new stmt_t(bb, wait));
     } else {
         balk(stmt, "unhandled node", __FILE__, __LINE__);
     }
@@ -1531,4 +1543,72 @@ id_list_t& module_t::ports() {
  */
 bool module_t::is_port(identifier_t id) {
     return std::find(arg_ports.begin(), arg_ports.end(), id) != arg_ports.end();
+}
+
+identifier_t module_t::make_unique_bb_id(identifier_t id) {
+    // create key if necessary.
+    uint32_t counter = bb_id_map[id];
+    bb_id_map[id] = counter + 1;
+
+    char bb_name[1024];
+    snprintf(bb_name, sizeof(bb_name), "%s.%u", id.c_str(), counter);
+
+    return identifier_t(bb_name);
+}
+
+bool util_t::ordinary_statement(VeriStatement* stmt) {
+    return dynamic_cast<VeriAssign*>(stmt) != nullptr ||
+            dynamic_cast<VeriBlockingAssign*>(stmt) != nullptr ||
+            dynamic_cast<VeriCaseStatement*>(stmt) != nullptr ||
+            dynamic_cast<VeriDeAssign*>(stmt) != nullptr ||
+            dynamic_cast<VeriDelayControlStatement*>(stmt) != nullptr ||
+            dynamic_cast<VeriDisable*>(stmt) != nullptr ||
+            dynamic_cast<VeriEventTrigger*>(stmt) != nullptr ||
+            dynamic_cast<VeriNonBlockingAssign*>(stmt) != nullptr ||
+            dynamic_cast<VeriWait*>(stmt) != nullptr;
+}
+
+bool util_t::ignored_statement(VeriStatement* stmt) {
+    return dynamic_cast<VeriNullStatement*>(stmt) != nullptr ||
+            dynamic_cast<VeriSystemTaskEnable*>(stmt) != nullptr;
+}
+
+bool util_t::sysverilog_statement(VeriStatement* stmt) {
+    return dynamic_cast<VeriJumpStatement*>(stmt) != nullptr ||
+            dynamic_cast<VeriRandsequence*>(stmt) != nullptr ||
+            dynamic_cast<VeriSequentialInstantiation*>(stmt) != nullptr ||
+            dynamic_cast<VeriWaitOrder*>(stmt) != nullptr ||
+            dynamic_cast<VeriWithStmt*>(stmt) != nullptr;
+}
+
+uint64_t util_t::build_reachable_set(bb_t*& start_bb, bb_set_t& reachable) {
+    bb_set_t workset;
+    reachable.clear();
+
+    workset.insert(start_bb);
+    reachable.insert(start_bb);
+    start_bb->set_entry_block(start_bb);
+
+    do {
+        bb_set_t::iterator it = workset.begin();
+        bb_t* work_item = *it;
+        workset.erase(it);
+
+        bb_t* left = work_item->left_successor();
+        bb_t* right = work_item->right_successor();
+
+        if (left != nullptr && reachable.find(left) == reachable.end()) {
+            workset.insert(left);
+            reachable.insert(left);
+            left->set_entry_block(start_bb);
+        }
+
+        if (right != nullptr && reachable.find(right) == reachable.end()) {
+            workset.insert(right);
+            reachable.insert(right);
+            right->set_entry_block(start_bb);
+        }
+    } while (workset.size() > 0);
+
+    return reachable.size();
 }

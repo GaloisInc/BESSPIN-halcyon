@@ -14,6 +14,7 @@
 using namespace Verific;
 
 class instr_t;
+class pinstr_t;
 class bb_t;
 class module_t;
 class module_call_t;
@@ -31,6 +32,7 @@ typedef std::set<instance_t> instance_set_t;
 
 typedef std::list<bb_t*> bb_list_t;
 typedef std::list<instr_t*> instr_list_t;
+typedef std::list<pinstr_t*> pinstr_list_t;
 
 typedef std::vector<identifier_t> id_list_t;
 
@@ -50,9 +52,9 @@ typedef struct {
 typedef std::list<conn_t> conn_list_t;
 
 enum {
-    STATE_UNKNOWN   = 0,
-    STATE_DEF       = 1,
-    STATE_USE       = 2,
+    STATE_UNKNOWN = 0,
+    STATE_DEF,
+    STATE_USE,
 };
 
 enum {
@@ -63,6 +65,7 @@ enum {
     BB_INITIAL,
     BB_DANGLING,
     BB_ORDINARY,
+    BB_NESTED,
 };
 
 typedef struct {
@@ -78,6 +81,7 @@ typedef std::list<id_desc_t> id_desc_list_t;
 class instr_t {
   private:
     bb_t* containing_bb;
+    pinstr_list_t pinstrs;
 
   protected:
     id_set_t def_set, use_set;
@@ -94,7 +98,9 @@ class instr_t {
     bb_t* parent();
     id_set_t& defs();
     id_set_t& uses();
-    static void describe_expr(VeriExpression*, id_desc_list_t&, state_t);
+
+    void add_def(identifier_t);
+    void add_use(identifier_t);
 
     virtual void dump() = 0;
     virtual bool operator==(const instr_t&) = 0;
@@ -221,6 +227,23 @@ class cmpr_t : public instr_t {
 };
 
 /*!
+ * Class that represents a nested statement, by just being a wrapper for a set
+ * of basic blocks.
+ */
+class pinstr_t {
+  private:
+    bb_list_t bb_list;
+    VeriStatement* stmt;
+    instr_t* containing_instr;
+
+  public:
+    pinstr_t(const pinstr_t&) = delete;
+    explicit pinstr_t(instr_t*, VeriStatement*);
+
+    void dump();
+};
+
+/*!
  * Class that represents a basic block.
  */
 class bb_t {
@@ -296,15 +319,11 @@ class module_t {
     bool process_connection(conn_t&, invoke_t*);
     bool update_postdominators(bb_t*, bb_set_t&);
     void augment_chains_with_links(module_map_t&);
-    uint64_t build_reachable_set(bb_t*&, bb_set_t&);
 
     void process_module_items(Array*);
     void process_module_ports(Array*);
     void process_module_params(Array*);
     void process_module_item(VeriModuleItem*);
-    void process_statement(bb_t*&, VeriStatement*);
-
-    bb_t* create_empty_bb(identifier_t, state_t);
 
     bb_t* find_imm_dominator(bb_t*, bb_set_t&);
     bb_t* find_imm_postdominator(bb_t*, bb_set_t&);
@@ -328,18 +347,34 @@ class module_t {
     void resolve_links(module_map_t&);
     void remove_from_top_level_blocks(bb_t*);
     void populate_guard_blocks(bb_t*, bb_set_t&);
+    void process_statement(bb_t*&, VeriStatement*);
 
     bb_t* immediate_dominator(bb_t*);
     bb_t* immediate_postdominator(bb_t*);
+    bb_t* create_empty_bb(identifier_t, state_t, bool);
 
     id_list_t& ports();
     identifier_t name();
     instr_set_t& def_instrs(identifier_t);
     instr_set_t& use_instrs(identifier_t);
+    identifier_t make_unique_bb_id(identifier_t);
 
     bool exists(bb_t*);
     bool is_port(identifier_t);
     bool postdominates(bb_t* source, bb_t* sink);
+
+    bool ignored_statement(VeriStatement*);
+    bool ordinary_statement(VeriStatement*);
+    bool sysverilog_statement(VeriStatement*);
+};
+
+class util_t {
+  public:
+    static bool ignored_statement(VeriStatement*);
+    static bool ordinary_statement(VeriStatement*);
+    static bool sysverilog_statement(VeriStatement*);
+    static uint64_t build_reachable_set(bb_t*&, bb_set_t&);
+    static void describe_expr(VeriExpression*, id_desc_list_t&, state_t);
 };
 
 #endif  // STRUCTS_H_
