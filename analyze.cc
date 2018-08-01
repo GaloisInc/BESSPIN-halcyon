@@ -45,9 +45,19 @@ unsigned parse_modules() {
     MapIter map_iter;
     VeriModule* module = nullptr;
 
+    char status[256];
+    unsigned counter = 0;
+    unsigned module_count = veri_file::AllModules()->Size();
+
     update_status("parsing module(s) ... ");
 
     FOREACH_VERILOG_MODULE(map_iter, module) {
+        counter += 1;
+        snprintf(status, sizeof(status), "parsing module [ %3d of %3d ] ... ",
+                counter, module_count);
+
+        update_status(status);
+
         module_t* module_ds = new module_t(module);
         module_map.emplace(module_ds->name(), module_ds);
     }
