@@ -214,8 +214,12 @@ int main(int argc, char **argv) {
 
     for (auto it = module_map.begin(); it != module_map.end(); it++) {
         module_t* module_ds = it->second;
-
         module_ds->resolve_links(module_map);
+    }
+
+    for (auto it = module_map.begin(); it != module_map.end(); it++) {
+        module_t* module_ds = it->second;
+
         module_ds->build_def_use_chains();
         // module_ds->print_undef_ids();
     }
