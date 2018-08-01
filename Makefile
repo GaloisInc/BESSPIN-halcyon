@@ -1,22 +1,22 @@
 CXX = g++
-OBJECTS = structs.o analyze.o dependence.o
+OBJECTS = src/structs.o  src/analyze.o  src/dependence.o
 
 VERIFIC_ROOT = ..
 
 CXXFLAGS = -I$(VERIFIC_ROOT)/verilog -I$(VERIFIC_ROOT)/util \
-    -I$(VERIFIC_ROOT)/containers -O3 -Iinclude -std=c++11 -g
+    -I$(VERIFIC_ROOT)/containers -O3 -Isrc/include -std=c++11 -g
 
 LDFLAGS = $(VERIFIC_ROOT)/verilog/verilog-linux.a   \
     $(VERIFIC_ROOT)/util/util-linux.a               \
     $(VERIFIC_ROOT)/containers/containers-linux.a   \
     $(VERIFIC_ROOT)/database/database-linux.a -lz
 
-all:    analyze
+all:    halcyon
 
-analyze:    $(OBJECTS)
+halcyon:    $(OBJECTS)
 	$(CXX) $(OBJECTS) $(LDFLAGS) -o $@ -O3 -lreadline
 
 clean:
-	$(RM) $(OBJECTS) analyze
+	$(RM) $(OBJECTS) halcyon
 
 .PHONY: all clean
