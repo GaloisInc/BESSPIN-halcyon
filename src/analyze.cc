@@ -203,7 +203,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    bool terminate = false;
+    Message::SetMessageType("VERI-1482", VERIFIC_IGNORE);
 
     for (unsigned idx = 1; idx < argc; idx += 1) {
         analyze_file(argv[idx]);
@@ -217,7 +217,7 @@ int main(int argc, char **argv) {
 
         module_ds->resolve_links(module_map);
         module_ds->build_def_use_chains();
-        module_ds->print_undef_ids();
+        // module_ds->print_undef_ids();
     }
 
     clear_status();
