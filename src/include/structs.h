@@ -316,9 +316,9 @@ class module_t {
     state_t arg_state(identifier_t);
     void intersect(bb_set_t&, bb_set_t&);
     bool update_dominators(bb_t*, bb_set_t&);
-    bool process_connection(conn_t&, invoke_t*);
     bool update_postdominators(bb_t*, bb_set_t&);
     void augment_chains_with_links(module_map_t&);
+    bool process_connection(conn_t&, invoke_t*, module_t*);
 
     void process_module_items(Array*);
     void process_module_ports(Array*);
@@ -345,6 +345,8 @@ class module_t {
     void build_def_use_chains();
     void build_dominator_sets();
     void resolve_links(module_map_t&);
+    void add_def(identifier_t, instr_t*);
+    void add_use(identifier_t, instr_t*);
     void remove_from_top_level_blocks(bb_t*);
     void populate_guard_blocks(bb_t*, bb_set_t&);
     void process_statement(bb_t*&, VeriStatement*);

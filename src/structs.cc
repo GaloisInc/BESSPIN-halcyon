@@ -1046,17 +1046,18 @@ void module_t::build_def_use_chains() {
     for (bb_t* bb : basicblocks) {
         for (instr_t* instr : bb->instrs()) {
             for (identifier_t id : instr->defs()) {
-                def_map[id].insert(instr);
+                add_def(id, instr);
             }
 
             for (identifier_t id : instr->uses()) {
-                use_map[id].insert(instr);
+                add_use(id, instr);
             }
         }
     }
 }
 
-bool module_t::process_connection(conn_t& connection, invoke_t* invocation) {
+bool module_t::process_connection(conn_t& connection, invoke_t* invocation,
+        module_t* invoked_module) {
     if (connection.state == STATE_UNKNOWN) {
         // std::cerr << "unknown state: " << connection.remote_endpoint << "\n";
         return false;
@@ -1065,6 +1066,8 @@ bool module_t::process_connection(conn_t& connection, invoke_t* invocation) {
     // IMPORTANT: When processing connections, we flip the def and use flags.
 
     if (connection.state & STATE_USE) {
+        // This pin is set by the invoked module.
+
         if (connection.id_set.size() > 1) {
             assert(false && "simultaneous definition of more than one id!");
             return false;
@@ -1074,14 +1077,19 @@ bool module_t::process_connection(conn_t& connection, invoke_t* invocation) {
             id_set_t::iterator it = connection.id_set.begin();
             const identifier_t& id = *it;
 
-            def_map[id].insert(invocation);
+            add_def(id, invocation);
+            invoked_module->add_use(connection.remote_endpoint, invocation);
         }
     }
 
     if (connection.state & STATE_DEF) {
+        // This pin is read by the invoked module.
+
         for (const identifier_t& id : connection.id_set) {
-            use_map[id].insert(invocation);
+            add_use(id, invocation);
         }
+
+        invoked_module->add_def(connection.remote_endpoint, invocation);
     }
 
     return true;
@@ -1103,8 +1111,9 @@ void module_t::resolve_invoke(invoke_t* invocation, module_map_t& module_map) {
 
     for (conn_t& connection : invocation->connections()) {
         identifier_t end_id = connection.remote_endpoint;
+
         connection.state = module->arg_state(end_id);
-        process_connection(connection, invocation);
+        process_connection(connection, invocation, module);
     }
 }
 
@@ -1554,6 +1563,14 @@ identifier_t module_t::make_unique_bb_id(identifier_t id) {
     snprintf(bb_name, sizeof(bb_name), "%s.%u", id.c_str(), counter);
 
     return identifier_t(bb_name);
+}
+
+void module_t::add_def(identifier_t def_id, instr_t* def_instr) {
+    def_map[def_id].insert(def_instr);
+}
+
+void module_t::add_use(identifier_t use_id, instr_t* use_instr) {
+    use_map[use_id].insert(use_instr);
 }
 
 bool util_t::ordinary_statement(VeriStatement* stmt) {
