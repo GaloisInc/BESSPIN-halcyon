@@ -191,9 +191,9 @@ int main(int argc, char **argv) {
 
     for (unsigned idx = 1; idx < argc; idx += 1) {
         analyze_file(argv[idx]);
-        parse_modules();
     }
 
+    parse_modules();
     util_t::update_status("building def-use chains ... ");
 
     for (auto it = module_map.begin(); it != module_map.end(); it++) {
