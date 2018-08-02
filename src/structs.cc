@@ -331,34 +331,6 @@ void instr_t::add_use(identifier_t use_id) {
     use_set.insert(use_id);
 }
 
-arg_t::arg_t(bb_t* parent, identifier_t name, state_t state) : instr_t(parent) {
-    arg_name = name;
-    arg_state = state;
-
-    if (state & STATE_DEF) {
-        add_def(arg_name);
-    }
-
-    if (state & STATE_USE) {
-        add_use(arg_name);
-    }
-}
-
-/*! \brief print instruction to the console (stderr).
- */
-void arg_t::dump() {
-    std::cerr << "arg: " << arg_name << " [ " << arg_state << " ] in module " <<
-            parent()->parent()->name() << "\n";
-}
-
-bool arg_t::operator==(const instr_t& reference) {
-    if (const arg_t* ref = dynamic_cast<const arg_t*>(&reference)) {
-        return arg_name == ref->arg_name && arg_state == ref->arg_state;
-    }
-
-    return false;
-}
-
 param_t::param_t(bb_t* parent, identifier_t name) : instr_t(parent)  {
     param_name = name;
     add_def(param_name);
@@ -1230,7 +1202,6 @@ void module_t::process_module_ports(Array* port_connects) {
 
     unsigned idx = 0;
     VeriAnsiPortDecl* decl = nullptr;
-    bb_t* arg_bb = create_empty_bb("args", BB_ARGS, false);
 
     FOREACH_ARRAY_ITEM(port_connects, idx, decl) {
         uint8_t state = STATE_UNKNOWN;
@@ -1248,9 +1219,7 @@ void module_t::process_module_ports(Array* port_connects) {
             identifier_t id = arg_id->GetName();
 
             add_arg(id, state);
-            arg_ports.push_back(id);
-
-            arg_bb->append(new arg_t(arg_bb, id, state));
+            arg_ports.insert(id);
         }
     }
 }
@@ -1323,7 +1292,6 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
 
             FOREACH_ARRAY_ITEM(decl->GetIds(), idx, arg_id) {
                 module_ds->add_arg(arg_id->GetName(), state);
-                arg_bb->append(new arg_t(arg_bb, arg_id->GetName(), state));
             }
         }
 
@@ -1353,7 +1321,14 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
             }
 
             FOREACH_ARRAY_ITEM(decl->GetIds(), idx, arg_id) {
-                update_arg(arg_id->GetName(), state);
+                identifier_t port_id = arg_id->GetName();
+
+                if (port_exists(port_id)) {
+                    update_arg(arg_id->GetName(), state);
+                } else {
+                    add_arg(port_id, state);
+                    arg_ports.insert(port_id);
+                }
             }
         }
     } else if (auto def_param = dynamic_cast<VeriDefParam*>(module_item)) {
@@ -1547,16 +1522,16 @@ void module_t::populate_guard_blocks(bb_t* ref_bb, bb_set_t& guard_blocks) {
     }
 }
 
-/*! \brief list of ports (or arguments) used by this module.
+/*! \brief set of ports (or arguments) used by this module.
  */
-id_list_t& module_t::ports() {
+id_set_t& module_t::ports() {
     return arg_ports;
 }
 
 /*! \brief check whether the requested identifier is among the ports.
  */
-bool module_t::is_port(identifier_t id) {
-    return std::find(arg_ports.begin(), arg_ports.end(), id) != arg_ports.end();
+bool module_t::port_exists(identifier_t id) {
+    return arg_ports.find(id) != arg_ports.end();
 }
 
 identifier_t module_t::make_unique_bb_id(identifier_t id) {

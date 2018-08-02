@@ -14,7 +14,7 @@ void dep_analysis_t::add_new_ids(id_set_t& ids, state_t dependence_type,
         }
 
         if (found == false) {
-            if (module_ds->is_port(id)) {
+            if (module_ds->port_exists(id)) {
                 if (dependence_type == DEP_TIMING) {
                     timing_deps.insert(module_ds->name() + "." + id);
                 } else {
@@ -68,24 +68,21 @@ void dep_analysis_t::gather_inter_module_dependencies(invoke_t* invoke,
     assert(it != module_map.end() && "failed to find invoked module!");
 
     module_t* module_ds = it->second;
-    id_list_t& ports = module_ds->ports();
+    id_set_t& ports = module_ds->ports();
 
     // Find which arguments in the caller are tainted, then
     // transfer taint to the corresponding arguments in the callee.
     id_set_t new_taints;
-    unsigned counter = 0;
 
     for (conn_t connection : invoke->connections()) {
         for (identifier_t id : connection.id_set) {
             for (dependence_t dependence : seen_set) {
                 if (dependence.id == id) {
-                    new_taints.insert(ports[counter]);
+                    new_taints.insert(connection.remote_endpoint);
                     break;
                 }
             }
         }
-
-        counter += 1;
     }
 
     add_new_ids(new_taints, dependence_type, module_ds);

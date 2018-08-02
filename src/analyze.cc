@@ -189,6 +189,8 @@ int main(int argc, char **argv) {
 
     Message::SetMessageType("VERI-1482", VERIFIC_IGNORE);
 
+    util_t::update_status("analyzing input files ... ");
+
     for (unsigned idx = 1; idx < argc; idx += 1) {
         analyze_file(argv[idx]);
     }

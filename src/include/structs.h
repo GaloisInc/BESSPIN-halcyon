@@ -107,22 +107,6 @@ class instr_t {
 };
 
 /*!
- * Class that represents a module port.
- */
-class arg_t : public instr_t {
-  private:
-    state_t arg_state;
-    identifier_t arg_name;
-
-  public:
-    arg_t(const arg_t&) = delete;
-    explicit arg_t(bb_t*, identifier_t, state_t);
-
-    virtual void dump();
-    virtual bool operator==(const instr_t&);
-};
-
-/*!
  * Class that represents a parameter constant.
  */
 class param_t : public instr_t {
@@ -311,7 +295,7 @@ class module_t {
 
     id_map_t def_map;
     id_map_t use_map;
-    id_list_t arg_ports;
+    id_set_t arg_ports;
     id_state_map_t arg_states;
 
     state_t arg_state(identifier_t);
@@ -356,14 +340,14 @@ class module_t {
     bb_t* immediate_postdominator(bb_t*);
     bb_t* create_empty_bb(identifier_t, state_t, bool);
 
-    id_list_t& ports();
+    id_set_t& ports();
     identifier_t name();
     instr_set_t& def_instrs(identifier_t);
     instr_set_t& use_instrs(identifier_t);
     identifier_t make_unique_bb_id(identifier_t);
 
     bool exists(bb_t*);
-    bool is_port(identifier_t);
+    bool port_exists(identifier_t);
     bool postdominates(bb_t* source, bb_t* sink);
 
     bool ignored_statement(VeriStatement*);
