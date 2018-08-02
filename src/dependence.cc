@@ -88,10 +88,6 @@ void dep_analysis_t::gather_inter_module_dependencies(invoke_t* invoke,
         counter += 1;
     }
 
-    if (new_taints.size() > 0) {
-        module_ds->build_dominator_sets();
-    }
-
     add_new_ids(new_taints, dependence_type, module_ds);
 }
 
@@ -142,13 +138,7 @@ bool dep_analysis_t::compute_dependencies(identifier_t module_name,
 
     module_t* module_ds = it->second;
 
-    fprintf(stderr, "\r                                                     ");
-    fprintf(stderr, "\rbuilding dominator trees ... ");
-
-    module_ds->build_dominator_sets();
-
-    fprintf(stderr, "\r                                                     ");
-    fprintf(stderr, "\rtracing definitions ... ");
+    util_t::update_status("tracing definitions ... ");
 
     dependence_t dependence = { DEP_ORDINARY, identifier, module_ds };
     workset.insert(dependence);
@@ -164,6 +154,11 @@ bool dep_analysis_t::compute_dependencies(identifier_t module_name,
         instr_set_t& instr_set = module_ds->def_instrs(dependence.id);
 
         for (instr_t* instr : instr_set) {
+            module_t* new_module_ds = instr->parent()->parent();
+
+            // We check for redundancy inside the following method.
+            new_module_ds->build_dominator_sets();
+
             gather_dependencies(instr, dependence, module_map);
         }
     } while (workset.size() > 0);

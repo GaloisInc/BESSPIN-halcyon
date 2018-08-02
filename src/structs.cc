@@ -15,9 +15,9 @@
  */
 void balk(VeriTreeNode* tree_node, const std::string& msg, const char* filename,
         int line_number) {
-    fprintf(stderr, "\r                                                     ");
-    fprintf(stderr, "\r%s:%d   %s [node = %p]\n", filename, line_number,
-            msg.c_str(), tree_node);
+    char message[128];
+    snprintf(message, sizeof(message), "\r%s:%d   %s [node = %p]\n", filename,
+            line_number, msg.c_str(), tree_node);
 
     tree_node->PrettyPrintXml(std::cerr, 100);
     assert(false && "unrecoverable error!");
@@ -730,6 +730,11 @@ void bb_t::dump() {
     } else {
         std::cerr << "-nil-\n";
     }
+
+    for (instr_t* instr : instr_list) {
+        std::cerr << "    ";
+        instr->dump();
+    }
 }
 
 /*! \brief the entry basic block that eventually leads to this basic block.
@@ -789,6 +794,8 @@ module_t* bb_t::parent() {
 }
 
 module_t::module_t(VeriModule*& module) {
+    is_function = false;
+    empty_dominators = true;
     mod_name = module->GetName();
 
     process_module_items(module->GetModuleItems());
@@ -1031,6 +1038,15 @@ void module_t::build_dominator_sets(bb_set_t& reachable) {
  * Dominator Tree Algorithm will almost surely improve analysis performance.
  */
 void module_t::build_dominator_sets() {
+    if (empty_dominators == false) {
+        return;
+    }
+
+    char message[128];
+    snprintf(message, sizeof(message), "building dominator tree for module "
+            "'%s' ... ", name().c_str());
+    util_t::update_status(message);
+
     for (bb_t* bb : top_level_blocks) {
         assert(bb->pred_count() == 0 && "not a top-level block!");
 
@@ -1038,6 +1054,8 @@ void module_t::build_dominator_sets() {
         util_t::build_reachable_set(bb, reachable);
         build_dominator_sets(reachable);
     }
+
+    empty_dominators = false;
 }
 
 /*! \brief find the definitions and uses of each instruction in this module.
@@ -1153,22 +1171,9 @@ void module_t::print_undef_ids() {
 
     if (undef_ids.size() > 0) {
         std::cerr << "\nfound " << undef_ids.size() << " undefined " <<
-                "identifiers in module " << mod_name << "\n\t";
+                "identifiers in module " << mod_name << "\n";
 
-        unsigned col = 0;
-
-        for (identifier_t id : undef_ids) {
-            if (col + id.size() + 1 > 80) {
-                col = 0;
-                std::cerr << "\n\t" << id;
-            } else {
-                std::cerr << id << " ";
-            }
-
-            col += id.size();
-        }
-
-        std::cerr << "\n";
+        util_t::dump_set(undef_ids);
     }
 }
 
@@ -1628,4 +1633,32 @@ uint64_t util_t::build_reachable_set(bb_t*& start_bb, bb_set_t& reachable) {
     } while (workset.size() > 0);
 
     return reachable.size();
+}
+
+void util_t::clear_status() {
+    std::cerr << "\r                                                        ";
+    std::cerr << "\r";
+}
+
+void util_t::update_status(const char* string) {
+    std::cerr << "\r                                                        ";
+    std::cerr << "\r" << string;
+}
+
+void util_t::dump_set(id_set_t& id_set) {
+    unsigned col = 0;
+    std::cerr << "\n    ";
+
+    for (identifier_t id : id_set) {
+        if (col + id.size() + 4 > 80) {
+            col = 0;
+            std::cerr << "\n    " << id;
+        } else {
+            std::cerr << id << " ";
+        }
+
+        col += id.size() + 4;
+    }
+
+    std::cerr << "\n\n";
 }

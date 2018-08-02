@@ -20,16 +20,6 @@
 using namespace Verific;
 module_map_t module_map;
 
-void clear_status() {
-    std::cerr << "\r                                                        ";
-    std::cerr << "\r";
-}
-
-void update_status(const char* string) {
-    std::cerr << "\r                                                        ";
-    std::cerr << "\r" << string;
-}
-
 void destroy_module_map() {
     for (auto it = module_map.begin(); it != module_map.end(); it++) {
         module_t* module_ds = it->second;
@@ -49,20 +39,20 @@ unsigned parse_modules() {
     unsigned counter = 0;
     unsigned module_count = veri_file::AllModules()->Size();
 
-    update_status("parsing module(s) ... ");
+    util_t::update_status("parsing module(s) ... ");
 
     FOREACH_VERILOG_MODULE(map_iter, module) {
         counter += 1;
         snprintf(status, sizeof(status), "parsing module [ %3d of %3d ] ... ",
                 counter, module_count);
 
-        update_status(status);
+        util_t::update_status(status);
 
         module_t* module_ds = new module_t(module);
         module_map.emplace(module_ds->name(), module_ds);
     }
 
-    clear_status();
+    util_t::clear_status();
     return module_map.size();
 }
 
@@ -167,33 +157,27 @@ void process_text(const char* __buffer) {
     std::string field = std::string(separator + 1);
 
     if (dep_analysis.compute_dependencies(mod_name, field, module_map)) {
+        util_t::update_status("\n");
+
         id_set_t& timing_deps = dep_analysis.leaking_timing_deps();
 
         if (timing_deps.size() > 0) {
-            clear_status();
+            util_t::clear_status();
+
             std::cerr << "timing leak:";
-
-            for (identifier_t id : timing_deps) {
-                std::cerr << " " << id;
-            }
-
-            std::cerr << "\n";
+            util_t::dump_set(timing_deps);
         }
 
         id_set_t& non_timing_deps = dep_analysis.leaking_non_timing_deps();
 
         if (non_timing_deps.size() > 0) {
-            clear_status();
+            util_t::clear_status();
+
             std::cerr << "non-timing leak:";
-
-            for (identifier_t id : non_timing_deps) {
-                std::cerr << " " << id;
-            }
-
-            std::cerr << "\n";
+            util_t::dump_set(non_timing_deps);
         }
     } else {
-        update_status("did not find any leakage.\n");
+        util_t::update_status("did not find any leakage.\n");
     }
 }
 
@@ -210,7 +194,7 @@ int main(int argc, char **argv) {
         parse_modules();
     }
 
-    update_status("building def-use chains ... ");
+    util_t::update_status("building def-use chains ... ");
 
     for (auto it = module_map.begin(); it != module_map.end(); it++) {
         module_t* module_ds = it->second;
@@ -224,7 +208,7 @@ int main(int argc, char **argv) {
         // module_ds->print_undef_ids();
     }
 
-    clear_status();
+    util_t::clear_status();
     rl_attempted_completion_function = complete_text;
 
     char* buffer = nullptr;

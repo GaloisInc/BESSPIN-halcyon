@@ -296,6 +296,7 @@ class bb_t {
 class module_t {
   private:
     bool is_function;
+    bool empty_dominators;
     identifier_t mod_name;
     instance_set_t instance_set;
 
@@ -372,11 +373,16 @@ class module_t {
 
 class util_t {
   public:
+    static void clear_status();
+    static void dump_set(id_set_t&);
+    static void update_status(const char*);
+    static void describe_expr(VeriExpression*, id_desc_list_t&, state_t);
+
     static bool ignored_statement(VeriStatement*);
     static bool ordinary_statement(VeriStatement*);
     static bool sysverilog_statement(VeriStatement*);
+
     static uint64_t build_reachable_set(bb_t*&, bb_set_t&);
-    static void describe_expr(VeriExpression*, id_desc_list_t&, state_t);
 };
 
 #endif  // STRUCTS_H_
