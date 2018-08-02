@@ -1,28 +1,19 @@
 #include "dependence.h"
 
-void dep_analysis_t::add_new_ids(id_set_t& ids, state_t dependence_type,
+void dep_analysis_t::add_new_ids(id_set_t& ids, state_t type,
         module_t* module_ds) {
     for (identifier_t id : ids) {
-        bool found = false;
-
-        for (dependence_t dependence : seen_set) {
-            if (dependence.id == id && dependence.module_ds == module_ds &&
-                    dependence.type == dependence_type) {
-                found = true;
-                break;
-            }
-        }
-
-        if (found == false) {
+        dependence_t dep = { type, id, module_ds };
+        if (seen_set.find(dep) == seen_set.end()) {
             if (module_ds->port_exists(id)) {
-                if (dependence_type == DEP_TIMING) {
+                if (type == DEP_TIMING) {
                     timing_deps.insert(module_ds->name() + "." + id);
                 } else {
                     non_timing_deps.insert(module_ds->name() + "." + id);
                 }
             }
 
-            dependence_t dependence = { dependence_type, id, module_ds };
+            dependence_t dependence = { type, id, module_ds };
             workset.insert(dependence);
             seen_set.insert(dependence);
         }
