@@ -1015,8 +1015,8 @@ void module_t::build_dominator_sets() {
     }
 
     char message[128];
-    snprintf(message, sizeof(message), "building dominator tree for module "
-            "'%s' ... ", name().c_str());
+    snprintf(message, sizeof(message), "building dominators for module %s... ",
+            name().substr(0, 8).c_str());
     util_t::update_status(message);
 
     for (bb_t* bb : top_level_blocks) {
