@@ -273,7 +273,7 @@ void instr_t::parse_statement(VeriStatement* stmt) {
         module_t* module_ds = this->parent()->parent();
 
         // FIXME: Wrap this basic block and its successors into an instruction.
-        bb_t* new_bb = module_ds->create_empty_bb("nested", BB_NESTED, true);
+        bb_t* new_bb = module_ds->create_empty_bb("nested", BB_HIDDEN, true);
 
         new_bb->append(new cmpr_t(new_bb, stmt->GetIfExpr()));
         bb_t* merge_bb = module_ds->create_empty_bb("merge", BB_ORDINARY, true);
@@ -509,7 +509,7 @@ pinstr_t::pinstr_t(instr_t* parent, VeriStatement* __stmt) {
     containing_instr = parent;
 
     module_t* module_ds = parent->parent()->parent();
-    bb_t* new_bb = module_ds->create_empty_bb("nested", BB_NESTED, true);
+    bb_t* new_bb = module_ds->create_empty_bb("nested", BB_HIDDEN, true);
 
     module_ds->process_statement(new_bb, stmt);
 

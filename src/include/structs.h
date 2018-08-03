@@ -65,7 +65,7 @@ enum {
     BB_INITIAL,
     BB_DANGLING,
     BB_ORDINARY,
-    BB_NESTED,
+    BB_HIDDEN,
 };
 
 typedef struct {
