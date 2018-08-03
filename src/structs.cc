@@ -207,9 +207,7 @@ void util_t::describe_expr(VeriExpression* expr, id_desc_list_t& desc_list,
     } else if (auto with_expr = dynamic_cast<VeriWith*>(expr)) {
         describe_expr(with_expr->GetLeft(), desc_list, type_hint);
     } else {
-        std::cerr << "unhandled expression: ";
-        expr->PrettyPrintXml(std::cerr, 100);
-        std::cerr << "\n";
+        balk(expr, "unhandled expression", __FILE__, __LINE__);
     }
 }
 
@@ -1340,7 +1338,8 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
             bb_params->append(new param_t(bb_params, name));
         }
     } else if (auto module = dynamic_cast<VeriModule*>(module_item)) {
-        // TODO
+        balk(module, "nested module definitions aren't supported", __FILE__,
+                __LINE__);
     } else if (auto inst = dynamic_cast<VeriModuleInstantiation*>(module_item)) {
         bb_t* bb = create_empty_bb("instantiation", BB_ORDINARY, false);
 
