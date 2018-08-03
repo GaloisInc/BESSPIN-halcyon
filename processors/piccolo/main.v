@@ -58,7 +58,7 @@ module main();
    reg        do_fst;
    reg        do_cycles;
 
-   // `TOP top(.CLK(CLK), /* .CLK_GATE(CLK_GATE), */ .`BSV_RESET_NAME(RST));
+   mkTop_HW_Side top(.CLK(CLK), /* .CLK_GATE(CLK_GATE), */ .`BSV_RESET_NAME(RST));
 
 // For Sce-Mi linkage, insert code here
 `ifdef BSV_SCEMI_LINK
