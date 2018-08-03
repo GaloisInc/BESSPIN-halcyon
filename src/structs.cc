@@ -43,7 +43,6 @@ void util_t::describe_expr(VeriExpression* expr, id_desc_list_t& desc_list,
     }
 
     if (dynamic_cast<VeriDefaultBinValue*>(expr) != nullptr ||
-            dynamic_cast<VeriForeachOperator*>(expr) != nullptr ||
             dynamic_cast<VeriTransRangeList*>(expr) != nullptr ||
             dynamic_cast<VeriTransSet*>(expr) != nullptr) {
         std::cerr << "no-catch expression: ";
@@ -142,8 +141,6 @@ void util_t::describe_expr(VeriExpression* expr, id_desc_list_t& desc_list,
         FOREACH_ARRAY_ITEM(multi_concat->GetExpressions(), idx, expression) {
             describe_expr(expression, desc_list, type_hint);
         }
-    } else if (dynamic_cast<VeriFunctionCall*>(expr) != nullptr) {
-        // TODO: handle later when we match the call with the definition.
     } else if (auto id_ref = dynamic_cast<VeriIdRef*>(expr)) {
         id_desc_t desc = { id_ref->GetName(), type_hint };
         desc_list.push_back(desc);
