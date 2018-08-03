@@ -15,9 +15,12 @@
  */
 void balk(VeriTreeNode* tree_node, const std::string& msg, const char* filename,
         int line_number) {
+    util_t::clear_status();
+
     char message[128];
     snprintf(message, sizeof(message), "\r%s:%d   %s [node = %p]\n", filename,
             line_number, msg.c_str(), tree_node);
+    util_t::update_status(message);
 
     tree_node->PrettyPrintXml(std::cerr, 100);
     assert(false && "unrecoverable error!");
@@ -271,7 +274,6 @@ void instr_t::parse_statement(VeriStatement* stmt) {
     } else if (auto seq_block = dynamic_cast<VeriSeqBlock*>(stmt)) {
         pinstr_t* pinstr = new pinstr_t(this, stmt);
         pinstrs.push_back(pinstr);
-
     } else if (dynamic_cast<VeriConditionalStatement*>(stmt) != nullptr) {
         module_t* module_ds = this->parent()->parent();
 
@@ -1365,6 +1367,10 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
 void module_t::process_statement(bb_t*& bb, VeriStatement* stmt) {
     unsigned idx = 0;
 
+    if (stmt == nullptr) {
+        return;
+    }
+
     if (util_t::ignored_statement(stmt) == true) {
         ;
     } else if (util_t::ordinary_statement(stmt) == true) {
@@ -1421,6 +1427,8 @@ void module_t::process_statement(bb_t*& bb, VeriStatement* stmt) {
         FOREACH_ARRAY_ITEM(stmt->GetStatements(), idx, __stmt) {
             process_statement(bb, __stmt);
         }
+    } else if (auto loop = dynamic_cast<VeriLoop*>(stmt)) {
+        process_statement(bb, stmt->GetStmt());
     } else {
         balk(stmt, "unhandled node", __FILE__, __LINE__);
     }
