@@ -13,10 +13,11 @@
 
 using namespace Verific;
 
+class bb_t;
 class instr_t;
 class pinstr_t;
-class bb_t;
 class module_t;
+class proc_decl_t;
 class module_call_t;
 
 typedef uint8_t state_t;
@@ -42,6 +43,7 @@ typedef std::map<identifier_t, uint32_t> bb_id_map_t;
 typedef std::map<identifier_t, instr_set_t> id_map_t;
 typedef std::map<identifier_t, module_t*> module_map_t;
 typedef std::map<identifier_t, state_t> id_state_map_t;
+typedef std::map<identifier_t, proc_decl_t*> proc_decl_map_t;
 
 typedef struct {
     state_t state;
@@ -211,6 +213,50 @@ class cmpr_t : public instr_t {
 };
 
 /*!
+ * Class that represents a task or function invocation.
+ */
+class proc_call_t : public instr_t {
+  private:
+    id_list_t args;
+    identifier_t proc_name;
+
+  public:
+    proc_call_t(const proc_call_t&) = delete;
+    explicit proc_call_t(bb_t*, VeriTaskEnable*);
+    ~proc_call_t();
+
+    void set_defs_and_uses();
+
+    virtual void dump();
+    virtual bool operator==(const instr_t&);
+};
+
+/*!
+ * Class that represents a task or function declaration.
+ */
+class proc_decl_t : public instr_t {
+  private:
+    identifier_t id;
+    bb_t* begin_block;
+    bb_t* containing_bb;
+    id_desc_list_t arguments;
+
+    void parse_data_decl(VeriDataDecl*);
+
+  public:
+    proc_decl_t(const proc_decl_t&) = delete;
+    explicit proc_decl_t(bb_t*, VeriTaskDecl*);
+    explicit proc_decl_t(bb_t*, VeriFunctionDecl*);
+    ~proc_decl_t();
+
+    identifier_t name();
+    id_desc_list_t& args();
+
+    virtual void dump();
+    virtual bool operator==(const instr_t&);
+};
+
+/*!
  * Class that represents a nested statement, by just being a wrapper for a set
  * of basic blocks.
  */
@@ -298,6 +344,8 @@ class module_t {
     id_set_t arg_ports;
     id_state_map_t arg_states;
 
+    proc_decl_map_t proc_decls;
+
     state_t arg_state(identifier_t);
     void intersect(bb_set_t&, bb_set_t&);
     bool update_dominators(bb_t*, bb_set_t&);
@@ -344,6 +392,7 @@ class module_t {
     identifier_t name();
     instr_set_t& def_instrs(identifier_t);
     instr_set_t& use_instrs(identifier_t);
+    proc_decl_t* proc_decl_by_id(identifier_t);
     identifier_t make_unique_bb_id(identifier_t);
 
     bool exists(bb_t*);
@@ -357,10 +406,15 @@ class module_t {
 
 class util_t {
   public:
+    static const identifier_t k_reset, k_yellow, k_red, k_warn, k_fatal;
+
     static void clear_status();
+    static void warn(identifier_t);
     static void dump_set(id_set_t&);
+    static void fatal(identifier_t);
     static void update_status(const char*);
-    static void describe_expr(VeriExpression*, id_desc_list_t&, state_t);
+    static void describe_expr(VeriExpression*, id_desc_list_t&, state_t,
+            module_t*);
 
     static bool ignored_statement(VeriStatement*);
     static bool ordinary_statement(VeriStatement*);

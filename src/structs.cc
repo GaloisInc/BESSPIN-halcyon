@@ -37,7 +37,7 @@ instr_t::~instr_t() {
 /*! \brief parse expression and record identifiers and their use.
  */
 void util_t::describe_expr(VeriExpression* expr, id_desc_list_t& desc_list,
-        uint8_t type_hint) {
+        uint8_t type_hint, module_t* module) {
     if (expr == nullptr) {
         return;
     }
@@ -59,42 +59,42 @@ void util_t::describe_expr(VeriExpression* expr, id_desc_list_t& desc_list,
         VeriIdDef* id_def = nullptr;
 
         FOREACH_ARRAY_ITEM(port->GetIds(), idx, id_def) {
-            describe_expr(id_def->GetActualName(), desc_list, type_hint);
+            describe_expr(id_def->GetActualName(), desc_list, type_hint, module);
         }
     } else if (auto bin_op = dynamic_cast<VeriBinaryOperator*>(expr)) {
-        describe_expr(bin_op->GetLeft(), desc_list, type_hint);
-        describe_expr(bin_op->GetRight(), desc_list, type_hint);
+        describe_expr(bin_op->GetLeft(), desc_list, type_hint, module);
+        describe_expr(bin_op->GetRight(), desc_list, type_hint, module);
     } else if (auto case_op = dynamic_cast<VeriCaseOperator*>(expr)) {
-        describe_expr(case_op->GetCondition(), desc_list, STATE_USE);
+        describe_expr(case_op->GetCondition(), desc_list, STATE_USE, module);
 
         uint32_t idx = 0;
         VeriCaseOperatorItem* case_op_item = nullptr;
 
         FOREACH_ARRAY_ITEM(case_op->GetCaseItems(), idx, case_op_item) {
             VeriExpression* property_expr = case_op_item->GetPropertyExpr();
-            describe_expr(property_expr, desc_list, type_hint);
+            describe_expr(property_expr, desc_list, type_hint, module);
 
             uint32_t idx = 0;
             VeriExpression* condition = nullptr;
 
             FOREACH_ARRAY_ITEM(case_op_item->GetConditions(), idx, condition) {
-                describe_expr(condition, desc_list, STATE_USE);
+                describe_expr(condition, desc_list, STATE_USE, module);
             }
         }
     } else if (auto cast_op = dynamic_cast<VeriCast*>(expr)) {
-        describe_expr(cast_op->GetExpr(), desc_list, type_hint);
+        describe_expr(cast_op->GetExpr(), desc_list, type_hint, module);
     } else if (auto concat = dynamic_cast<VeriConcat*>(expr)) {
         uint32_t idx = 0;
         VeriConcatItem* concat_item = nullptr;
 
         FOREACH_ARRAY_ITEM(concat->GetExpressions(), idx, concat_item) {
-            describe_expr(concat_item, desc_list, type_hint);
+            describe_expr(concat_item, desc_list, type_hint, module);
         }
     } else if (auto concat_item = dynamic_cast<VeriConcatItem*>(expr)) {
-        describe_expr(concat_item->GetExpr(), desc_list, type_hint);
+        describe_expr(concat_item->GetExpr(), desc_list, type_hint, module);
     } else if (auto cond_pred = dynamic_cast<VeriCondPredicate*>(expr)) {
-        describe_expr(cond_pred->GetLeft(), desc_list, type_hint);
-        describe_expr(cond_pred->GetRight(), desc_list, type_hint);
+        describe_expr(cond_pred->GetLeft(), desc_list, type_hint, module);
+        describe_expr(cond_pred->GetRight(), desc_list, type_hint, module);
     } else if (dynamic_cast<VeriConst*>(expr) != nullptr ||
             dynamic_cast<VeriDataType*>(expr) != nullptr ||
             dynamic_cast<VeriDollar*>(expr) != nullptr ||
@@ -107,39 +107,63 @@ void util_t::describe_expr(VeriExpression* expr, id_desc_list_t& desc_list,
         VeriExpression* expression = nullptr;
 
         FOREACH_ARRAY_ITEM(constraint_set->GetExpressions(), idx, expression) {
-            describe_expr(expression, desc_list, type_hint);
+            describe_expr(expression, desc_list, type_hint, module);
         }
     } else if (auto delay_ctrl = dynamic_cast<VeriDelayOrEventControl*>(expr)) {
-        describe_expr(delay_ctrl->GetDelayControl(), desc_list, STATE_USE);
+        describe_expr(delay_ctrl->GetDelayControl(), desc_list, STATE_USE, module);
 
         uint32_t idx = 0;
         VeriExpression* expression = nullptr;
 
         FOREACH_ARRAY_ITEM(delay_ctrl->GetEventControl(), idx, expression) {
-            describe_expr(expression, desc_list, STATE_USE);
+            describe_expr(expression, desc_list, STATE_USE, module);
         }
 
-        describe_expr(delay_ctrl->GetRepeatEvent(), desc_list, type_hint);
+        describe_expr(delay_ctrl->GetRepeatEvent(), desc_list, type_hint, module);
     } else if (auto dot_name = dynamic_cast<VeriDotName*>(expr)) {
-        describe_expr(dot_name->GetVarName(), desc_list, type_hint);
+        describe_expr(dot_name->GetVarName(), desc_list, type_hint, module);
     } else if (auto event_expr = dynamic_cast<VeriEventExpression*>(expr)) {
-        describe_expr(event_expr->GetIffCondition(), desc_list, STATE_USE);
-        describe_expr(event_expr->GetExpr(), desc_list, type_hint);
+        describe_expr(event_expr->GetIffCondition(), desc_list, STATE_USE, module);
+        describe_expr(event_expr->GetExpr(), desc_list, type_hint, module);
+    } else if (auto function_call = dynamic_cast<VeriFunctionCall*>(expr)) {
+        identifier_t func_name = function_call->GetFunctionName()->GetName();
+        proc_decl_t* proc_decl = module->proc_decl_by_id(func_name);
+
+        if (proc_decl == nullptr) {
+            util_t::clear_status();
+            util_t::warn("failed to find function declaration '" + func_name +
+                    "'.");
+
+            return;
+        }
+
+        uint32_t idx = 0;
+        VeriIdRef* id_ref = nullptr;
+
+        // XXX: Conservatively, assume that all
+        // arguments to the function are used.
+
+        FOREACH_ARRAY_ITEM(function_call->GetArgs(), idx, id_ref) {
+            identifier_t id = id_ref->GetId()->Name();
+
+            id_desc_t desc = { id, STATE_USE };
+            desc_list.push_back(desc);
+        }
     } else if (auto indexed_expr = dynamic_cast<VeriIndexedExpr*>(expr)) {
-        describe_expr(indexed_expr->GetPrefixExpr(), desc_list, type_hint);
-        describe_expr(indexed_expr->GetIndexExpr(), desc_list, STATE_USE);
+        describe_expr(indexed_expr->GetPrefixExpr(), desc_list, type_hint, module);
+        describe_expr(indexed_expr->GetIndexExpr(), desc_list, STATE_USE, module);
     } else if (auto min_typ_max = dynamic_cast<VeriMinTypMaxExpr*>(expr)) {
-        describe_expr(min_typ_max->GetMinExpr(), desc_list, type_hint);
-        describe_expr(min_typ_max->GetTypExpr(), desc_list, type_hint);
-        describe_expr(min_typ_max->GetMaxExpr(), desc_list, type_hint);
+        describe_expr(min_typ_max->GetMinExpr(), desc_list, type_hint, module);
+        describe_expr(min_typ_max->GetTypExpr(), desc_list, type_hint, module);
+        describe_expr(min_typ_max->GetMaxExpr(), desc_list, type_hint, module);
     } else if (auto multi_concat = dynamic_cast<VeriMultiConcat*>(expr)) {
-        describe_expr(multi_concat->GetRepeat(), desc_list, STATE_USE);
+        describe_expr(multi_concat->GetRepeat(), desc_list, STATE_USE, module);
 
         uint32_t idx = 0;
         VeriExpression* expression = nullptr;
 
         FOREACH_ARRAY_ITEM(multi_concat->GetExpressions(), idx, expression) {
-            describe_expr(expression, desc_list, type_hint);
+            describe_expr(expression, desc_list, type_hint, module);
         }
     } else if (auto id_ref = dynamic_cast<VeriIdRef*>(expr)) {
         id_desc_t desc = { id_ref->GetName(), type_hint };
@@ -148,7 +172,7 @@ void util_t::describe_expr(VeriExpression* expr, id_desc_list_t& desc_list,
         id_desc_t desc = { indexed_id->GetName(), type_hint };
         desc_list.push_back(desc);
 
-        describe_expr(indexed_id->GetIndexExpr(), desc_list, STATE_USE);
+        describe_expr(indexed_id->GetIndexExpr(), desc_list, STATE_USE, module);
     } else if (auto idx_mem_id = dynamic_cast<VeriIndexedMemoryId*>(expr)) {
         id_desc_t desc = { idx_mem_id->GetName(), type_hint };
         desc_list.push_back(desc);
@@ -157,7 +181,7 @@ void util_t::describe_expr(VeriExpression* expr, id_desc_list_t& desc_list,
         VeriExpression* expression = nullptr;
 
         FOREACH_ARRAY_ITEM(idx_mem_id->GetIndexes(), idx, expression) {
-            describe_expr(expression, desc_list, STATE_USE);
+            describe_expr(expression, desc_list, STATE_USE, module);
         }
     } else if (auto selected_name = dynamic_cast<VeriSelectedName*>(expr)) {
         id_desc_t desc = { selected_name->GetPrefix()->GetName(), type_hint };
@@ -166,46 +190,46 @@ void util_t::describe_expr(VeriExpression* expr, id_desc_list_t& desc_list,
         desc = { selected_name->GetSuffix(), type_hint };
         desc_list.push_back(desc);
     } else if (auto new_expr = dynamic_cast<VeriNew*>(expr)) {
-        describe_expr(new_expr->GetSizeExpr(), desc_list, type_hint);
+        describe_expr(new_expr->GetSizeExpr(), desc_list, type_hint, module);
 
         uint32_t idx = 0;
         VeriExpression* expression = nullptr;
 
         FOREACH_ARRAY_ITEM(new_expr->GetArgs(), idx, expression) {
-            describe_expr(expression, desc_list, STATE_USE);
+            describe_expr(expression, desc_list, STATE_USE, module);
         }
     } else if (auto path_pulse = dynamic_cast<VeriPathPulseVal*>(expr)) {
-        describe_expr(path_pulse->GetRejectLimit(), desc_list, type_hint);
-        describe_expr(path_pulse->GetErrorLimit(), desc_list, type_hint);
+        describe_expr(path_pulse->GetRejectLimit(), desc_list, type_hint, module);
+        describe_expr(path_pulse->GetErrorLimit(), desc_list, type_hint, module);
     } else if (auto pattern_match = dynamic_cast<VeriPatternMatch*>(expr)) {
-        describe_expr(pattern_match->GetLeft(), desc_list, type_hint);
-        describe_expr(pattern_match->GetRight(), desc_list, type_hint);
+        describe_expr(pattern_match->GetLeft(), desc_list, type_hint, module);
+        describe_expr(pattern_match->GetRight(), desc_list, type_hint, module);
     } else if (auto port_conn = dynamic_cast<VeriPortConnect*>(expr)) {
         id_desc_t desc = { port_conn->GetNamedFormal(), type_hint };
         desc_list.push_back(desc);
 
-        describe_expr(port_conn->GetConnection(), desc_list, type_hint);
+        describe_expr(port_conn->GetConnection(), desc_list, type_hint, module);
     } else if (auto question_colon = dynamic_cast<VeriQuestionColon*>(expr)) {
-        describe_expr(question_colon->GetIfExpr(), desc_list, STATE_USE);
-        describe_expr(question_colon->GetThenExpr(), desc_list, STATE_USE);
-        describe_expr(question_colon->GetElseExpr(), desc_list, STATE_USE);
+        describe_expr(question_colon->GetIfExpr(), desc_list, STATE_USE, module);
+        describe_expr(question_colon->GetThenExpr(), desc_list, STATE_USE, module);
+        describe_expr(question_colon->GetElseExpr(), desc_list, STATE_USE, module);
     } else if (auto range = dynamic_cast<VeriRange*>(expr)) {
-        describe_expr(range->GetLeft(), desc_list, type_hint);
-        describe_expr(range->GetRight(), desc_list, type_hint);
+        describe_expr(range->GetLeft(), desc_list, type_hint, module);
+        describe_expr(range->GetRight(), desc_list, type_hint, module);
     } else if (auto sysfunc = dynamic_cast<VeriSystemFunctionCall*>(expr)) {
         uint32_t idx = 0;
         VeriExpression* expression = nullptr;
 
         FOREACH_ARRAY_ITEM(sysfunc->GetArgs(), idx, expression) {
-            describe_expr(expression, desc_list, STATE_USE);
+            describe_expr(expression, desc_list, STATE_USE, module);
         }
     } else if (auto timing_check = dynamic_cast<VeriTimingCheckEvent*>(expr)) {
-        describe_expr(timing_check->GetCondition(), desc_list, STATE_USE);
-        describe_expr(timing_check->GetTerminalDesc(), desc_list, type_hint);
+        describe_expr(timing_check->GetCondition(), desc_list, STATE_USE, module);
+        describe_expr(timing_check->GetTerminalDesc(), desc_list, type_hint, module);
     } else if (auto unary_op = dynamic_cast<VeriUnaryOperator*>(expr)) {
-        describe_expr(unary_op->GetArg(), desc_list, type_hint);
+        describe_expr(unary_op->GetArg(), desc_list, type_hint, module);
     } else if (auto with_expr = dynamic_cast<VeriWith*>(expr)) {
-        describe_expr(with_expr->GetLeft(), desc_list, type_hint);
+        describe_expr(with_expr->GetLeft(), desc_list, type_hint, module);
     } else {
         balk(expr, "unhandled expression", __FILE__, __LINE__);
     }
@@ -213,7 +237,7 @@ void util_t::describe_expr(VeriExpression* expr, id_desc_list_t& desc_list,
 
 void instr_t::parse_expression(VeriExpression* expr, uint8_t dst_set) {
     id_desc_list_t desc_list;
-    util_t::describe_expr(expr, desc_list, dst_set);
+    util_t::describe_expr(expr, desc_list, dst_set, parent()->parent());
 
     for (id_desc_t desc : desc_list) {
         if (desc.type == STATE_DEF) {
@@ -451,7 +475,8 @@ void invoke_t::parse_invocation() {
 
     FOREACH_ARRAY_ITEM(mod_inst->GetPortConnects(), idx, connect) {
         id_desc_list_t desc_list;
-        util_t::describe_expr(connect->GetConnection(), desc_list, STATE_USE);
+        util_t::describe_expr(connect->GetConnection(), desc_list, STATE_USE,
+                parent()->parent());
 
         conn_t connection;
         connection.remote_endpoint = connect->GetNamedFormal();
@@ -1169,7 +1194,7 @@ void module_t::process_module_items(Array* module_items) {
         return;
     }
 
-    unsigned idx = 0;
+    uint32_t idx = 0;
     VeriModuleItem* module_item = nullptr;
 
     FOREACH_ARRAY_ITEM(module_items, idx, module_item) {
@@ -1182,7 +1207,7 @@ void module_t::process_module_params(Array* params) {
         return;
     }
 
-    unsigned idx = 0;
+    uint32_t idx = 0;
     VeriIdDef* id_def = nullptr;
 
     bb_t* bb_params = create_empty_bb("params", BB_PARAMS, false);
@@ -1197,7 +1222,7 @@ void module_t::process_module_ports(Array* port_connects) {
         return;
     }
 
-    unsigned idx = 0;
+    uint32_t idx = 0;
     VeriAnsiPortDecl* decl = nullptr;
 
     FOREACH_ARRAY_ITEM(port_connects, idx, decl) {
@@ -1209,7 +1234,7 @@ void module_t::process_module_ports(Array* port_connects) {
             case VERI_INOUT:    state = STATE_DEF | STATE_USE;  break;
         }
 
-        unsigned idx = 0;
+        uint32_t idx = 0;
         VeriIdDef* arg_id = nullptr;
 
         FOREACH_ARRAY_ITEM(decl->GetIds(), idx, arg_id) {
@@ -1261,51 +1286,23 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
         FOREACH_ARRAY_ITEM(continuous->GetNetAssigns(), idx, net_reg_assign) {
             bb->append(new assign_t(bb, net_reg_assign));
         }
+    } else if (auto task_decl = dynamic_cast<VeriTaskDecl*>(module_item)) {
+        bb_t* bb = create_empty_bb("taskdecl", BB_ORDINARY, false);
+        proc_decl_t* proc_decl = new proc_decl_t(bb, task_decl);
+
+        bb->append(proc_decl);
+        proc_decls.emplace(proc_decl->name(), proc_decl);
     } else if (auto func_decl = dynamic_cast<VeriFunctionDecl*>(module_item)) {
-    /*
-        // Treat this just like any other module.
-        VeriName* veri_name = func_decl->GetSubprogramName();
-        identifier_t function_name = veri_name->GetName();
+        bb_t* bb = create_empty_bb("funcdecl", BB_ORDINARY, false);
+        proc_decl_t* proc_decl = new proc_decl_t(bb, func_decl);
 
-        module_t* module_ds = new module_t(function_name);
-        module_ds->is_function = true;
-
-        bb_t* arg_bb = module_ds->create_empty_bb("args", BB_ARGS, false);
-
-        uint32_t idx = 0;
-        VeriAnsiPortDecl* decl = nullptr;
-
-        FOREACH_ARRAY_ITEM(func_decl->GetAnsiIOList(), idx, decl) {
-            uint8_t state = STATE_UNKNOWN;
-
-            switch (decl->GetDir()) {
-                case VERI_INPUT:    state = STATE_DEF;              break;
-                case VERI_OUTPUT:   state = STATE_USE;              break;
-                case VERI_INOUT:    state = STATE_DEF | STATE_USE;  break;
-            }
-
-            unsigned idx = 0;
-            VeriIdDef* arg_id = nullptr;
-
-            FOREACH_ARRAY_ITEM(decl->GetIds(), idx, arg_id) {
-                module_ds->add_arg(arg_id->GetName(), state);
-            }
-        }
-
-        module_map.emplace(function_name, module_ds);
-    */
-    /* } else if (dynamic_cast<VeriGenerateConditional*>(module_item) != nullptr ||
-            dynamic_cast<VeriGenerateConstruct*>(module_item) != nullptr ||
-            dynamic_cast<VeriGenerateCase*>(module_item) != nullptr ||
-            dynamic_cast<VeriGenerateFor*>(module_item) != nullptr ||
-            dynamic_cast<VeriGenerateBlock*>(module_item) != nullptr) {
-        ; // XXX: Ignore.
-    */
+        bb->append(proc_decl);
+        proc_decls.emplace(proc_decl->name(), proc_decl);
     } else if (auto initial = dynamic_cast<VeriInitialConstruct*>(module_item)) {
         bb_t* bb = create_empty_bb("initial", BB_INITIAL, false);
         process_statement(bb, initial->GetStmt());
     } else if (auto decl = dynamic_cast<VeriDataDecl*>(module_item)) {
-        unsigned idx = 0;
+        uint32_t idx = 0;
         VeriIdDef* arg_id = nullptr;
 
         if (decl->IsIODecl()) {
@@ -1329,7 +1326,7 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
             }
         }
     } else if (auto def_param = dynamic_cast<VeriDefParam*>(module_item)) {
-        unsigned idx = 0;
+        uint32_t idx = 0;
         VeriDefParamAssign* param_assign = nullptr;
         bb_t* bb_params = create_empty_bb("params", BB_PARAMS, false);
 
@@ -1353,15 +1350,13 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
     } else if (auto stmt = dynamic_cast<VeriStatement*>(module_item)) {
         bb_t* bb = create_empty_bb(".dangling", BB_DANGLING, false);
         process_statement(bb, stmt);
-    } else if (dynamic_cast<VeriTaskDecl*>(module_item) != nullptr) {
-        ; // Ignore
     } else {
         balk(module_item, "unhandled node", __FILE__, __LINE__);
     }
 }
 
 void module_t::process_statement(bb_t*& bb, VeriStatement* stmt) {
-    unsigned idx = 0;
+    uint32_t idx = 0;
 
     if (stmt == nullptr) {
         return;
@@ -1403,7 +1398,7 @@ void module_t::process_statement(bb_t*& bb, VeriStatement* stmt) {
         FOREACH_ARRAY_ITEM(event_ctrl->GetAt(), idx, expr) {
             if (expr != nullptr) {
                 id_desc_list_t desc_list;
-                util_t::describe_expr(expr, desc_list, STATE_USE);
+                util_t::describe_expr(expr, desc_list, STATE_USE, this);
 
                 for (id_desc_t desc : desc_list) {
                     identifier_set.insert(desc.name);
@@ -1425,6 +1420,8 @@ void module_t::process_statement(bb_t*& bb, VeriStatement* stmt) {
         }
     } else if (auto loop = dynamic_cast<VeriLoop*>(stmt)) {
         process_statement(bb, stmt->GetStmt());
+    } else if (auto task_enable = dynamic_cast<VeriTaskEnable*>(stmt)) {
+        bb->append(new proc_call_t(bb, task_enable));
     } else {
         balk(stmt, "unhandled node", __FILE__, __LINE__);
     }
@@ -1557,6 +1554,15 @@ void module_t::add_use(identifier_t use_id, instr_t* use_instr) {
     use_map[use_id].insert(use_instr);
 }
 
+proc_decl_t* module_t::proc_decl_by_id(identifier_t id) {
+    proc_decl_map_t::iterator it = proc_decls.find(id);
+    if (it == proc_decls.end()) {
+        return nullptr;
+    }
+
+    return it->second;
+}
+
 bool util_t::ordinary_statement(VeriStatement* stmt) {
     return dynamic_cast<VeriAssign*>(stmt) != nullptr ||
             dynamic_cast<VeriBlockingAssign*>(stmt) != nullptr ||
@@ -1625,7 +1631,7 @@ void util_t::update_status(const char* string) {
 }
 
 void util_t::dump_set(id_set_t& id_set) {
-    unsigned col = 0;
+    uint32_t col = 0;
     std::cerr << "\n    ";
 
     for (identifier_t id : id_set) {
@@ -1640,4 +1646,192 @@ void util_t::dump_set(id_set_t& id_set) {
     }
 
     std::cerr << "\n\n";
+}
+
+proc_decl_t::proc_decl_t(bb_t* parent, VeriTaskDecl* task_decl) :
+        instr_t(nullptr) {
+    containing_bb = parent;
+    module_t* module_ds = parent->parent();
+    id = task_decl->GetSubprogramName()->GetName();
+
+    uint32_t idx = 0;
+    VeriStatement* statement = nullptr;
+    begin_block = module_ds->create_empty_bb("begin", BB_HIDDEN, true);
+
+    FOREACH_ARRAY_ITEM(task_decl->GetStatements(), idx, statement) {
+        module_ds->process_statement(begin_block, statement);
+    }
+
+    VeriDataDecl* data_decl = nullptr;
+    FOREACH_ARRAY_ITEM(task_decl->GetDeclarations(), idx, data_decl) {
+        parse_data_decl(data_decl);
+    }
+}
+
+proc_decl_t::proc_decl_t(bb_t* parent, VeriFunctionDecl* func_decl) :
+        instr_t(nullptr) {
+    containing_bb = parent;
+    module_t* module_ds = parent->parent();
+    id = func_decl->GetSubprogramName()->GetName();
+
+    uint32_t idx = 0;
+    VeriStatement* statement = nullptr;
+    begin_block = module_ds->create_empty_bb("begin", BB_HIDDEN, true);
+
+    FOREACH_ARRAY_ITEM(func_decl->GetStatements(), idx, statement) {
+        module_ds->process_statement(begin_block, statement);
+    }
+}
+
+void proc_decl_t::parse_data_decl(VeriDataDecl* data_decl) {
+    uint32_t idx = 0;
+    VeriIdDef* arg_id = nullptr;
+
+    if (data_decl->IsIODecl()) {
+        state_t state = STATE_UNKNOWN;
+
+        switch (data_decl->GetDir()) {
+            case VERI_INPUT:    state = STATE_DEF;              break;
+            case VERI_OUTPUT:   state = STATE_USE;              break;
+            case VERI_INOUT:    state = STATE_DEF | STATE_USE;  break;
+        }
+
+        FOREACH_ARRAY_ITEM(data_decl->GetIds(), idx, arg_id) {
+            identifier_t port_id = arg_id->GetName();
+
+            id_desc_t arg = { port_id, state };
+            arguments.push_back(arg);
+        }
+    }
+}
+
+proc_decl_t::~proc_decl_t() {
+    bb_set_t reachable_set;
+    util_t::build_reachable_set(begin_block, reachable_set);
+
+    for (bb_t* bb : reachable_set) {
+        delete bb;
+        bb = nullptr;
+    }
+
+    begin_block = nullptr;
+    reachable_set.clear();
+}
+
+void proc_decl_t::dump() {
+    std::cerr << "procedure " << id << " with body:\n";
+
+    bb_set_t reachable_set;
+    util_t::build_reachable_set(begin_block, reachable_set);
+
+    for (bb_t* bb : reachable_set) {
+        bb->dump();
+        std::cerr << "\n";
+    }
+}
+
+bool proc_decl_t::operator==(const instr_t& reference) {
+    if (const proc_decl_t* ref = dynamic_cast<const proc_decl_t*>(&reference)) {
+        return id == ref->id && containing_bb == ref->containing_bb;
+    }
+
+    return false;
+}
+
+identifier_t proc_decl_t::name() {
+    return id;
+}
+
+id_desc_list_t& proc_decl_t::args() {
+    return arguments;
+}
+
+proc_call_t::proc_call_t(bb_t* parent, VeriTaskEnable* task_enable) :
+        instr_t(parent) {
+    proc_name = task_enable->GetTaskName()->GetName();
+
+    uint32_t idx = 0;
+    VeriIdRef* id_ref = nullptr;
+
+    FOREACH_ARRAY_ITEM(task_enable->GetArgs(), idx, id_ref) {
+        identifier_t id = id_ref->GetId()->Name();
+        args.push_back(id);
+    }
+
+    set_defs_and_uses();
+}
+
+void proc_call_t::set_defs_and_uses() {
+    module_t* module_ds = parent()->parent();
+    proc_decl_t* proc_decl = module_ds->proc_decl_by_id(proc_name);
+
+    if (proc_decl == nullptr) {
+        std::cerr << "referenced task: " << proc_name << "\n";
+        assert(false && "failed to find task declaration!");
+
+        return;
+    }
+
+    uint32_t actuals_size = args.size();
+    uint32_t formals_size = proc_decl->args().size();
+
+    if (actuals_size != formals_size) {
+        assert(false && "argument count does not match between declaration and "
+                "invocation!");
+        return;
+    }
+
+    uint32_t idx = 0;
+
+    for (id_desc_t formal_arg : proc_decl->args()) {
+        identifier_t arg_id = args[idx];
+
+        if (formal_arg.type & STATE_DEF) {
+            // This is an input argument to the task.
+            add_use(arg_id);
+
+            // XXX: We probably need to make the 'use'
+            // point inside the task or function.
+        }
+
+        if (formal_arg.type & STATE_USE) {
+            // This is an output argument of the task.
+            add_def(arg_id);
+        }
+
+        idx += 1;
+    }
+}
+
+proc_call_t::~proc_call_t() {
+    args.clear();
+}
+
+void proc_call_t::dump() {
+}
+
+bool proc_call_t::operator==(const instr_t& reference) {
+    if (const proc_call_t* ref = dynamic_cast<const proc_call_t*>(&reference)) {
+        return proc_name == ref->proc_name && args == ref->args;
+    }
+
+    return false;
+}
+
+const identifier_t util_t::k_reset = "\033[0m";
+const identifier_t util_t::k_red = "\033[31m";
+const identifier_t util_t::k_yellow = "\033[33m";
+
+const identifier_t util_t::k_warn = util_t::k_yellow + "[WARN]" +
+        util_t::k_reset + " ";
+
+const identifier_t util_t::k_fatal = util_t::k_red + "[FATAL]" +
+        util_t::k_reset + " ";
+
+void util_t::warn(identifier_t message) {
+    std::cerr << k_warn << message << "\n";
+}
+
+void util_t::fatal(identifier_t message) {
+    std::cerr << k_fatal << message << "\n";
 }

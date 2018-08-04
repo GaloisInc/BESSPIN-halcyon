@@ -31,13 +31,13 @@ void destroy_module_map() {
     module_map.clear();
 }
 
-unsigned parse_modules() {
+uint32_t parse_modules() {
     MapIter map_iter;
     VeriModule* module = nullptr;
 
     char status[256];
-    unsigned counter = 0;
-    unsigned module_count = veri_file::AllModules()->Size();
+    uint32_t counter = 0;
+    uint32_t module_count = veri_file::AllModules()->Size();
 
     util_t::update_status("parsing module(s) ... ");
 
@@ -191,7 +191,7 @@ int main(int argc, char **argv) {
 
     util_t::update_status("analyzing input files ... ");
 
-    for (unsigned idx = 1; idx < argc; idx += 1) {
+    for (uint32_t idx = 1; idx < argc; idx += 1) {
         analyze_file(argv[idx]);
     }
 
