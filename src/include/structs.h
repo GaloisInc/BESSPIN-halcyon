@@ -406,12 +406,15 @@ class module_t {
 
 class util_t {
   public:
-    static const identifier_t k_reset, k_yellow, k_red, k_warn, k_fatal;
+    static const identifier_t k_reset, k_yellow, k_red, k_warn, k_fatal,
+            k_underline;
 
     static void clear_status();
     static void warn(identifier_t);
     static void dump_set(id_set_t&);
     static void fatal(identifier_t);
+    static void plain(identifier_t);
+    static void underline(identifier_t);
     static void update_status(const char*);
     static void describe_expr(VeriExpression*, id_desc_list_t&, state_t,
             module_t*);

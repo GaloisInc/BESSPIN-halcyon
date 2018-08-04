@@ -146,7 +146,8 @@ void process_text(const char* __buffer) {
     const char* separator = strchr(__buffer, '.');
 
     if (separator == nullptr) {
-        std::cerr << "need <module>.<port>, found " << __buffer << "\n";
+        util_t::warn("need <module>.<port>, found '" + identifier_t(__buffer) +
+                "'\n");
         return;
     }
 
@@ -164,7 +165,7 @@ void process_text(const char* __buffer) {
         if (timing_deps.size() > 0) {
             util_t::clear_status();
 
-            std::cerr << "timing leak:";
+            util_t::underline("found timing leak:");
             util_t::dump_set(timing_deps);
         }
 
@@ -173,7 +174,7 @@ void process_text(const char* __buffer) {
         if (non_timing_deps.size() > 0) {
             util_t::clear_status();
 
-            std::cerr << "non-timing leak:";
+            util_t::underline("found non-timing leak:");
             util_t::dump_set(non_timing_deps);
         }
     } else {

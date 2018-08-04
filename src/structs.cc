@@ -42,19 +42,7 @@ void util_t::describe_expr(VeriExpression* expr, id_desc_list_t& desc_list,
         return;
     }
 
-    if (dynamic_cast<VeriDefaultBinValue*>(expr) != nullptr ||
-            dynamic_cast<VeriTransRangeList*>(expr) != nullptr ||
-            dynamic_cast<VeriTransSet*>(expr) != nullptr) {
-        std::cerr << "no-catch expression: ";
-        expr->PrettyPrintXml(std::cerr, 100);
-        std::cerr << "\n";
-    } else if (dynamic_cast<VeriSelectCondition*>(expr) ||
-            dynamic_cast<VeriSolveBefore*>(expr) ||
-            dynamic_cast<VeriTaggedUnion*>(expr)) {
-        std::cerr << "systemverilog? : ";
-        expr->PrettyPrintXml(std::cerr, 100);
-        std::cerr << "\n";
-    } else if (auto port = dynamic_cast<VeriAnsiPortDecl*>(expr)) {
+    if (auto port = dynamic_cast<VeriAnsiPortDecl*>(expr)) {
         uint32_t idx = 0;
         VeriIdDef* id_def = nullptr;
 
@@ -132,7 +120,7 @@ void util_t::describe_expr(VeriExpression* expr, id_desc_list_t& desc_list,
         if (proc_decl == nullptr) {
             util_t::clear_status();
             util_t::warn("failed to find function declaration '" + func_name +
-                    "'.");
+                    "'\n");
 
             return;
         }
@@ -240,12 +228,16 @@ void instr_t::parse_expression(VeriExpression* expr, uint8_t dst_set) {
     util_t::describe_expr(expr, desc_list, dst_set, parent()->parent());
 
     for (id_desc_t desc : desc_list) {
-        if (desc.type == STATE_DEF) {
+        if (desc.type & STATE_DEF) {
             add_def(desc.name);
-        } else if (desc.type == STATE_USE) {
+        }
+
+        if (desc.type & STATE_USE) {
             add_use(desc.name);
-        } else {
-            std::cerr << "[u] " << desc.name << "\n";
+        }
+
+        if (desc.type == 0) {
+            util_t::fatal("invalid state type for '" + desc.name + "'");
             assert(false && "invalid destination!");
         }
     }
@@ -360,8 +352,8 @@ param_t::param_t(bb_t* parent, identifier_t name) : instr_t(parent)  {
 /*! \brief print instruction to the console (stderr).
  */
 void param_t::dump() {
-    std::cerr << "param: " << param_name << " in module " <<
-            parent()->parent()->name() << "\n";
+    identifier_t module_name = parent()->parent()->name();
+    util_t::plain("param: " + param_name + " in module " + module_name + "\n");
 }
 
 bool param_t::operator==(const instr_t& reference) {
@@ -1071,7 +1063,6 @@ void module_t::build_def_use_chains() {
 bool module_t::process_connection(conn_t& connection, invoke_t* invocation,
         module_t* invoked_module) {
     if (connection.state == STATE_UNKNOWN) {
-        // std::cerr << "unknown state: " << connection.remote_endpoint << "\n";
         return false;
     }
 
@@ -1112,8 +1103,8 @@ void module_t::resolve_invoke(invoke_t* invocation, module_map_t& module_map) {
     module_map_t::iterator it = module_map.find(mod_name);
 
     if (it == module_map.end()) {
-        std::cerr << "referred module: " << mod_name << " in module " <<
-                name() << "\n";
+        util_t::fatal("referred module: " + mod_name + " in module " + name() +
+                "\n");
 
         assert(false && "found reference to undefined module!");
         return;
@@ -1136,13 +1127,7 @@ void module_t::resolve_links(module_map_t& module_map) {
         for (instr_t* instr : bb->instrs()) {
             if (invoke_t* invocation = dynamic_cast<invoke_t*>(instr)) {
                 resolve_invoke(invocation, module_map);
-            } /* FIXME: else if (stmt_t* stmt = dynamic_cast<stmt_t*>(instr)) {
-                VeriStatement* statement = stmt->statement();
-
-                if (auto fcall = dynamic_cast<VeriFunctionCall*>(statement)) {
-                    fcall->PrettyPrintXml(std::cerr, 100);
-                }
-            } */
+            }
         }
     }
 }
@@ -1164,8 +1149,12 @@ void module_t::print_undef_ids() {
     }
 
     if (undef_ids.size() > 0) {
-        std::cerr << "\nfound " << undef_ids.size() << " undefined " <<
-                "identifiers in module " << mod_name << "\n";
+        char message[1024];
+        snprintf(message, sizeof(message), "found %zd undefined identifier(s) "
+                "in module '%s'.\n", undef_ids.size(), mod_name.c_str());
+
+        util_t::plain("\n");
+        util_t::warn(message);
 
         util_t::dump_set(undef_ids);
     }
@@ -1433,7 +1422,7 @@ instr_set_t& module_t::def_instrs(identifier_t identifier) {
     id_map_t::iterator it = def_map.find(identifier);
 
     if (it == def_map.end()) {
-        std::cerr << "id: \"" << identifier << "\"\n";
+        util_t::fatal("id: \"" + identifier + "\"\n");
         assert(false && "failed to find def for requested id!");
     }
 
@@ -1446,7 +1435,7 @@ instr_set_t& module_t::use_instrs(identifier_t identifier) {
     id_map_t::iterator it = use_map.find(identifier);
 
     if (it == use_map.end()) {
-        std::cerr << "id: \"" << identifier << "\"\n";
+        util_t::fatal("id: \"" + identifier + "\"\n");
         assert(false && "failed to find use for requested id!");
     }
 
@@ -1621,31 +1610,31 @@ uint64_t util_t::build_reachable_set(bb_t*& start_bb, bb_set_t& reachable) {
 }
 
 void util_t::clear_status() {
-    std::cerr << "\r                                                        ";
-    std::cerr << "\r";
+    util_t::plain("\r                                                        ");
+    util_t::plain("\r");
 }
 
 void util_t::update_status(const char* string) {
-    std::cerr << "\r                                                        ";
-    std::cerr << "\r" << string;
+    clear_status();
+    util_t::plain(string);
 }
 
 void util_t::dump_set(id_set_t& id_set) {
     uint32_t col = 0;
-    std::cerr << "\n    ";
+    util_t::plain("\n    ");
 
     for (identifier_t id : id_set) {
         if (col + id.size() + 4 > 80) {
             col = 0;
-            std::cerr << "\n    " << id;
+            util_t::plain("\n    " + id);
         } else {
-            std::cerr << id << " ";
+            util_t::plain(id + " ");
         }
 
         col += id.size() + 4;
     }
 
-    std::cerr << "\n\n";
+    util_t::plain("\n\n");
 }
 
 proc_decl_t::proc_decl_t(bb_t* parent, VeriTaskDecl* task_decl) :
@@ -1719,14 +1708,14 @@ proc_decl_t::~proc_decl_t() {
 }
 
 void proc_decl_t::dump() {
-    std::cerr << "procedure " << id << " with body:\n";
+    util_t::plain("procedure " + id + " with body:\n");
 
     bb_set_t reachable_set;
     util_t::build_reachable_set(begin_block, reachable_set);
 
     for (bb_t* bb : reachable_set) {
         bb->dump();
-        std::cerr << "\n";
+        util_t::plain("\n");
     }
 }
 
@@ -1766,7 +1755,7 @@ void proc_call_t::set_defs_and_uses() {
     proc_decl_t* proc_decl = module_ds->proc_decl_by_id(proc_name);
 
     if (proc_decl == nullptr) {
-        std::cerr << "referenced task: " << proc_name << "\n";
+        util_t::plain("referenced task: " + proc_name + "\n");
         assert(false && "failed to find task declaration!");
 
         return;
@@ -1819,8 +1808,9 @@ bool proc_call_t::operator==(const instr_t& reference) {
 }
 
 const identifier_t util_t::k_reset = "\033[0m";
-const identifier_t util_t::k_red = "\033[31m";
-const identifier_t util_t::k_yellow = "\033[33m";
+const identifier_t util_t::k_red = "\033[91m";
+const identifier_t util_t::k_yellow = "\033[93m";
+const identifier_t util_t::k_underline = "\033[4m";
 
 const identifier_t util_t::k_warn = util_t::k_yellow + "[WARN]" +
         util_t::k_reset + " ";
@@ -1829,9 +1819,17 @@ const identifier_t util_t::k_fatal = util_t::k_red + "[FATAL]" +
         util_t::k_reset + " ";
 
 void util_t::warn(identifier_t message) {
-    std::cerr << k_warn << message << "\n";
+    std::cerr << k_warn << message;
 }
 
 void util_t::fatal(identifier_t message) {
-    std::cerr << k_fatal << message << "\n";
+    std::cerr << k_fatal << message;
+}
+
+void util_t::plain(identifier_t message) {
+    std::cerr << k_reset << message;
+}
+
+void util_t::underline(identifier_t message) {
+    std::cerr << k_underline << message << k_reset;
 }
