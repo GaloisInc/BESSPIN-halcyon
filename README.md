@@ -47,13 +47,17 @@ Halcyon accepts input as module-name.signal-name (e.g. `MulDiv.io_resp_valid`).
 Halcyon also supports tab-completion on module names and ports.
 
 
-## How is Halcyon Implemented ##
+## Implementation Details of Halcyon ##
 
+### Data Flow Analysis ###
 Halcyon uses standard data flow analysis techniques, with a few extensions that
 are specifically targeted for Verilog programs.  Specifically, Halcyon tracks
 the flow of information through not just explicit and implicit flows, but also
 through triggers (i.e. through `always` blocks and triggered events in
-Verilog).  Since Verilog does not strictly conform to standard rules of
+Verilog).
+
+### Differences from Analysis in Procedural Programs ###
+Since Verilog does not strictly conform to standard rules of
 composition of instructions and basic blocks (since instructions -- or really,
 statements -- may contain nested statements), the Halcyon has to relax the
 definition of its internal data structures accordingly.  Hence, an instruction
@@ -62,6 +66,7 @@ contain multiple entry points (see `module_t::top_level_blocks`), and some
 basic blocks are not included in the list of basic blocks in the containing
 module (see `BB_HIDDEN`).
 
+### Flow Tracking ###
 For tracing explicit flows, Halcyon uses def-use chains constructed from
 lvalues and rvalues of statements.  For tracing implicit flows, Halcyon uses
 the domiantor and postdominator tree to discover guard conditions.  Finally,
