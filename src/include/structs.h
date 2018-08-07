@@ -17,33 +17,19 @@ class bb_t;
 class instr_t;
 class pinstr_t;
 class module_t;
-class proc_decl_t;
-class module_call_t;
 
 typedef uint8_t state_t;
-typedef VeriExpression* expr_t;
 typedef std::string identifier_t;
-typedef VeriModuleInstantiation* instance_t;
 
 typedef std::set<bb_t*> bb_set_t;
-typedef std::set<expr_t> expr_set_t;
 typedef std::set<instr_t*> instr_set_t;
 typedef std::set<identifier_t> id_set_t;
-typedef std::set<instance_t> instance_set_t;
 
 typedef std::list<bb_t*> bb_list_t;
 typedef std::list<instr_t*> instr_list_t;
-typedef std::list<pinstr_t*> pinstr_list_t;
-
 typedef std::vector<identifier_t> id_list_t;
 
-typedef std::map<bb_t*, bb_t*> bb_map_t;
-typedef std::map<bb_t*, bb_set_t> bb_set_map_t;
-typedef std::map<identifier_t, uint32_t> bb_id_map_t;
-typedef std::map<identifier_t, instr_set_t> id_map_t;
 typedef std::map<identifier_t, module_t*> module_map_t;
-typedef std::map<identifier_t, state_t> id_state_map_t;
-typedef std::map<identifier_t, proc_decl_t*> proc_decl_map_t;
 
 typedef struct {
     state_t state;
@@ -82,6 +68,8 @@ typedef std::list<id_desc_t> id_desc_list_t;
  */
 class instr_t {
   private:
+    typedef std::list<pinstr_t*> pinstr_list_t;
+
     bb_t* containing_bb;
     pinstr_list_t pinstrs;
 
@@ -325,6 +313,16 @@ class bb_t {
  */
 class module_t {
   private:
+    typedef VeriModuleInstantiation* instance_t;
+    typedef std::set<instance_t> instance_set_t;
+
+    typedef std::map<bb_t*, bb_t*> bb_map_t;
+    typedef std::map<bb_t*, bb_set_t> bb_set_map_t;
+    typedef std::map<identifier_t, uint32_t> bb_id_map_t;
+    typedef std::map<identifier_t, instr_set_t> id_map_t;
+    typedef std::map<identifier_t, state_t> id_state_map_t;
+    typedef std::map<identifier_t, proc_decl_t*> proc_decl_map_t;
+
     bool is_function;
     bool empty_dominators;
     identifier_t mod_name;
@@ -401,7 +399,6 @@ class module_t {
 
     bool ignored_statement(VeriStatement*);
     bool ordinary_statement(VeriStatement*);
-    bool sysverilog_statement(VeriStatement*);
 };
 
 class util_t {

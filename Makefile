@@ -1,7 +1,7 @@
 CXX = g++
 OBJECTS = src/structs.o  src/analyze.o  src/dependence.o
 
-VERIFIC_ROOT = ..
+VERIFIC_ROOT ?= ../verific
 
 CXXFLAGS = -I$(VERIFIC_ROOT)/verilog -I$(VERIFIC_ROOT)/util \
     -I$(VERIFIC_ROOT)/containers -O3 -Isrc/include -std=c++11 -g

@@ -1569,14 +1569,6 @@ bool util_t::ignored_statement(VeriStatement* stmt) {
             dynamic_cast<VeriSystemTaskEnable*>(stmt) != nullptr;
 }
 
-bool util_t::sysverilog_statement(VeriStatement* stmt) {
-    return dynamic_cast<VeriJumpStatement*>(stmt) != nullptr ||
-            dynamic_cast<VeriRandsequence*>(stmt) != nullptr ||
-            dynamic_cast<VeriSequentialInstantiation*>(stmt) != nullptr ||
-            dynamic_cast<VeriWaitOrder*>(stmt) != nullptr ||
-            dynamic_cast<VeriWithStmt*>(stmt) != nullptr;
-}
-
 uint64_t util_t::build_reachable_set(bb_t*& start_bb, bb_set_t& reachable) {
     bb_set_t workset;
     reachable.clear();
@@ -1626,7 +1618,7 @@ void util_t::dump_set(id_set_t& id_set) {
     for (identifier_t id : id_set) {
         if (col + id.size() + 4 > 80) {
             col = 0;
-            util_t::plain("\n    " + id);
+            util_t::plain("\n    " + id + " ");
         } else {
             util_t::plain(id + " ");
         }
