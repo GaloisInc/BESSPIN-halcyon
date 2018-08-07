@@ -39,9 +39,11 @@ relevant (`ALU` or `MulDiv`) modules.
 
 ## How to Use Halcyon ##
 
-Halcyon requires that the Verific parser is located in the parent directory.
-If not, please change the variable `VERIFIC_ROOT` in `Makefile` or set it from
-the command line when running make (e.g. `VERIFIC_ROOT=/opt/verific-dir make`).
+Halcyon requires that the [Verific parser (on
+gitlab-int)](https://gitlab-int.galois.com/arane/verific) is located in the
+parent directory.  If not, please change the variable `VERIFIC_ROOT` in
+`Makefile` or set it from the command line when running make (e.g.
+`VERIFIC_ROOT=/opt/verific-dir make`).
 
 Halcyon accepts input as module-name.signal-name (e.g. `MulDiv.io_resp_valid`).
 Halcyon also supports tab-completion on module names and ports.
