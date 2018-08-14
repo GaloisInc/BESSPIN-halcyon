@@ -323,7 +323,7 @@ class module_t {
     typedef std::map<identifier_t, state_t> id_state_map_t;
     typedef std::map<identifier_t, proc_decl_t*> proc_decl_map_t;
 
-    bool is_function;
+    bool primitive;
     bool empty_dominators;
     identifier_t mod_name;
     instance_set_t instance_set;
@@ -394,6 +394,7 @@ class module_t {
     identifier_t make_unique_bb_id(identifier_t);
 
     bool exists(bb_t*);
+    bool is_primitive();
     bool port_exists(identifier_t);
     bool postdominates(bb_t* source, bb_t* sink);
 

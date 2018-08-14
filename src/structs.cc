@@ -280,6 +280,7 @@ void instr_t::parse_statement(VeriStatement* stmt) {
         parse_expression(nonblocking->GetLValue(), STATE_DEF);
         parse_expression(nonblocking->GetValue(), STATE_USE);
     } else if (auto wait = dynamic_cast<VeriWait*>(stmt)) {
+        // TODO: Record potential timing leakage.
         parse_expression(wait->GetCondition(), STATE_USE);
         parse_statement(wait->GetStmt());
     } else if (auto seq_block = dynamic_cast<VeriSeqBlock*>(stmt)) {
@@ -780,9 +781,10 @@ module_t* bb_t::parent() {
 }
 
 module_t::module_t(VeriModule*& module) {
-    is_function = false;
     empty_dominators = true;
     mod_name = module->GetName();
+
+    primitive = dynamic_cast<VeriPrimitive*>(module) != nullptr;
 
     process_module_items(module->GetModuleItems());
     process_module_params(module->GetParameters());
@@ -1133,10 +1135,6 @@ void module_t::resolve_links(module_map_t& module_map) {
 }
 
 void module_t::print_undef_ids() {
-    if (is_function == true) {
-        return;
-    }
-
     id_set_t undef_ids;
 
     for (id_map_t::iterator it = use_map.begin(); it != use_map.end(); it++) {
@@ -1257,6 +1255,7 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
             dynamic_cast<VeriGateInstantiation*>(module_item) != nullptr ||
             dynamic_cast<VeriPathDecl*>(module_item) != nullptr ||
             dynamic_cast<VeriPulseControl*>(module_item) != nullptr ||
+            dynamic_cast<VeriSequentialInstantiation*>(module_item) != nullptr ||
             dynamic_cast<VeriSpecifyBlock*>(module_item) != nullptr ||
             dynamic_cast<VeriSystemTimingCheck*>(module_item) != nullptr ||
             dynamic_cast<VeriTable*>(module_item) != nullptr ||
@@ -1550,6 +1549,10 @@ proc_decl_t* module_t::proc_decl_by_id(identifier_t id) {
     }
 
     return it->second;
+}
+
+bool module_t::is_primitive() {
+    return primitive;
 }
 
 bool util_t::ordinary_statement(VeriStatement* stmt) {
