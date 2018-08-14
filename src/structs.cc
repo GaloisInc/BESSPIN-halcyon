@@ -522,6 +522,33 @@ bool cmpr_t::operator==(const instr_t& reference) {
     return false;
 }
 
+data_decl_t::data_decl_t(bb_t* parent, VeriIdDef* __decl) : instr_t(parent) {
+    decl = __decl;
+
+    def_set.insert(decl->GetName());
+
+    VeriExpression* init_val = decl->GetInitialValue();
+
+    if (init_val != nullptr) {
+        parse_expression(init_val, STATE_USE);
+    }
+}
+
+/*! \brief print instruction to the console (stderr).
+ */
+void data_decl_t::dump() {
+    decl->PrettyPrint(std::cerr, 100);
+    std::cerr << " in module " << parent()->parent()->name() << "\n";
+}
+
+bool data_decl_t::operator==(const instr_t& reference) {
+    if (const data_decl_t* ref = dynamic_cast<const data_decl_t*>(&reference)) {
+        return decl == ref->decl;
+    }
+
+    return false;
+}
+
 pinstr_t::pinstr_t(instr_t* parent, VeriStatement* __stmt) {
     stmt = __stmt;
     containing_instr = parent;
@@ -1292,19 +1319,20 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
     } else if (auto decl = dynamic_cast<VeriDataDecl*>(module_item)) {
         uint32_t idx = 0;
         VeriIdDef* arg_id = nullptr;
+        bb_t* bb = create_empty_bb("datadecl", BB_INITIAL, false);
 
-        if (decl->IsIODecl()) {
-            state_t state = STATE_UNKNOWN;
+        state_t state = STATE_UNKNOWN;
 
-            switch (decl->GetDir()) {
-                case VERI_INPUT:    state = STATE_DEF;              break;
-                case VERI_OUTPUT:   state = STATE_USE;              break;
-                case VERI_INOUT:    state = STATE_DEF | STATE_USE;  break;
-            }
+        switch (decl->GetDir()) {
+            case VERI_INPUT:    state = STATE_DEF;              break;
+            case VERI_OUTPUT:   state = STATE_USE;              break;
+            case VERI_INOUT:    state = STATE_DEF | STATE_USE;  break;
+        }
 
-            FOREACH_ARRAY_ITEM(decl->GetIds(), idx, arg_id) {
-                identifier_t port_id = arg_id->GetName();
+        FOREACH_ARRAY_ITEM(decl->GetIds(), idx, arg_id) {
+            identifier_t port_id = arg_id->GetName();
 
+            if (decl->IsIODecl()) {
                 if (port_exists(port_id)) {
                     update_arg(arg_id->GetName(), state);
                 } else {
@@ -1312,6 +1340,8 @@ void module_t::process_module_item(VeriModuleItem* module_item) {
                     arg_ports.insert(port_id);
                 }
             }
+
+            bb->append(new data_decl_t(bb, arg_id));
         }
     } else if (auto def_param = dynamic_cast<VeriDefParam*>(module_item)) {
         uint32_t idx = 0;
@@ -1671,21 +1701,23 @@ void proc_decl_t::parse_data_decl(VeriDataDecl* data_decl) {
     uint32_t idx = 0;
     VeriIdDef* arg_id = nullptr;
 
-    if (data_decl->IsIODecl()) {
-        state_t state = STATE_UNKNOWN;
+    state_t state = STATE_UNKNOWN;
 
-        switch (data_decl->GetDir()) {
-            case VERI_INPUT:    state = STATE_DEF;              break;
-            case VERI_OUTPUT:   state = STATE_USE;              break;
-            case VERI_INOUT:    state = STATE_DEF | STATE_USE;  break;
-        }
+    switch (data_decl->GetDir()) {
+        case VERI_INPUT:    state = STATE_DEF;              break;
+        case VERI_OUTPUT:   state = STATE_USE;              break;
+        case VERI_INOUT:    state = STATE_DEF | STATE_USE;  break;
+    }
 
-        FOREACH_ARRAY_ITEM(data_decl->GetIds(), idx, arg_id) {
-            identifier_t port_id = arg_id->GetName();
+    FOREACH_ARRAY_ITEM(data_decl->GetIds(), idx, arg_id) {
+        identifier_t port_id = arg_id->GetName();
 
+        if (data_decl->IsIODecl()) {
             id_desc_t arg = { port_id, state };
             arguments.push_back(arg);
         }
+
+        parent()->append(new data_decl_t(parent(), arg_id));
     }
 }
 

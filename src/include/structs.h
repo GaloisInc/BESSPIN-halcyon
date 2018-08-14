@@ -245,6 +245,22 @@ class proc_decl_t : public instr_t {
 };
 
 /*!
+ * Class that represents a data declaration.
+ */
+class data_decl_t : public instr_t {
+  private:
+    VeriIdDef* decl;
+
+  public:
+    data_decl_t(const data_decl_t&) = delete;
+    explicit data_decl_t(bb_t*, VeriIdDef*);
+    ~data_decl_t();
+
+    virtual void dump();
+    virtual bool operator==(const instr_t&);
+};
+
+/*!
  * Class that represents a nested statement, by just being a wrapper for a set
  * of basic blocks.
  */
