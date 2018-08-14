@@ -1421,7 +1421,7 @@ instr_set_t& module_t::def_instrs(identifier_t identifier) {
     id_map_t::iterator it = def_map.find(identifier);
 
     if (it == def_map.end()) {
-        util_t::fatal("id: \"" + identifier + "\"\n");
+        util_t::fatal("id: \"" + identifier + "\" in " + name() + "\n");
         assert(false && "failed to find def for requested id!");
     }
 
@@ -1434,7 +1434,7 @@ instr_set_t& module_t::use_instrs(identifier_t identifier) {
     id_map_t::iterator it = use_map.find(identifier);
 
     if (it == use_map.end()) {
-        util_t::fatal("id: \"" + identifier + "\"\n");
+        util_t::fatal("id: \"" + identifier + "\" in " + name() + "\n");
         assert(false && "failed to find use for requested id!");
     }
 
