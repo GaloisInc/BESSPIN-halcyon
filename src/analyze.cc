@@ -203,43 +203,72 @@ void do_repl() {
     }
 }
 
+void do_one_signal(std::string mod, std::string fld, int &outIdx, Json::Value &out) {
+    dep_analysis_t dep_analysis;
+
+    bool compute = dep_analysis.compute_dependencies(mod,
+                                                     fld,
+                                                     module_map);
+    if (compute) {
+        Json::Value result;
+        id_set_t& timing_deps = dep_analysis.leaking_timing_deps();
+        id_set_t& non_timing_deps = dep_analysis.leaking_non_timing_deps();
+
+        int idx = 0;
+        for (auto id : timing_deps) {
+            result["timing"][idx] = id;
+            idx++;
+        }
+
+        idx = 0;
+        for (auto id : non_timing_deps) {
+            result["non_timing"][idx] = id;
+            idx++;
+        }
+        result["module"] = mod;
+        result["field"]  = fld;
+        out[outIdx] = result;
+    } else {
+        out[outIdx]["module"] = mod;
+        out[outIdx]["field"]  = fld;
+        out[outIdx]["non_timing"] = Json::Value(Json::arrayValue);
+        out[outIdx]["timing"] = Json::Value(Json::arrayValue);
+    }
+    outIdx++;
+}
+
+
 Json::Value processJSON(Json::Value root) {
     int outIdx = 0;
     Json::Value out(Json::arrayValue);
-    dep_analysis_t dep_analysis;
 
     for (auto s : root["signals"]) {
         std::string mod = s["module"].asString().c_str();
         std::string fld = s["field"].asString().c_str();
-        bool compute = dep_analysis.compute_dependencies(mod,
-                                                         fld,
-                                                         module_map);
-        if (compute) {
-            Json::Value result;
-            id_set_t& timing_deps = dep_analysis.leaking_timing_deps();
-            id_set_t& non_timing_deps = dep_analysis.leaking_non_timing_deps();
+        std::vector<std::string> fields;
+        if (fld.back() == '*') {
+            fld.pop_back();
 
-            int idx = 0;
-            for (auto id : timing_deps) {
-                result["timing"][idx] = id;
-                idx++;
-            }
+            module_map_t::iterator it = module_map.find(mod);
+            module_t* module_ds = it->second;
 
-            idx = 0;
-            for (auto id : non_timing_deps) {
-                result["non_timing"][idx] = id;
-                idx++;
+            for (identifier_t port : module_ds->ports()) {
+                identifier_t lcase_port = port;
+                std::transform(lcase_port.begin(), lcase_port.end(),
+                               lcase_port.begin(), ::tolower);
+
+                if (lcase_port.size() >= fld.size() &&
+                    lcase_port.compare(0, fld.size(), fld) == 0) {
+                    fields.push_back(port);
+                }
             }
-            result["module"] = mod;
-            result["field"]  = fld;
-            out[outIdx] = result;
         } else {
-            out[outIdx]["module"] = mod;
-            out[outIdx]["field"]  = fld;
-            out[outIdx]["non_timing"] = Json::Value(Json::arrayValue);
-            out[outIdx]["timing"] = Json::Value(Json::arrayValue);
+            fields.push_back(fld);
         }
-        outIdx++;
+
+        for (auto fld : fields) {
+            do_one_signal(mod, fld, outIdx, out);
+        }
     }
 
     return out;
