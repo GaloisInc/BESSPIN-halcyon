@@ -1,9 +1,14 @@
 #include <algorithm>
 #include <cassert>
 #include <iostream>
+#include <string>
+#include <sstream>
 
 #include <readline/readline.h>
 #include <readline/history.h>
+
+#include <json/json.h>
+#include <json/reader.h>
 
 #include <Array.h>
 #include <Map.h>
@@ -182,21 +187,138 @@ void process_text(const char* __buffer) {
     }
 }
 
+void do_repl() {
+    char* buffer = nullptr;
+    while ((buffer = readline(">> ")) != nullptr) {
+        if (strlen(buffer) == 0) {
+            continue;
+        } else if (strcmp(buffer, "quit") != 0) {
+            add_history(buffer);
+            process_text(buffer);
+            free(buffer);
+        } else {
+            free(buffer);
+            break;
+        }
+    }
+}
+
+void do_one_signal(std::string mod, std::string fld, int &outIdx, Json::Value &out) {
+    dep_analysis_t dep_analysis;
+
+    bool compute = dep_analysis.compute_dependencies(mod,
+                                                     fld,
+                                                     module_map);
+    if (compute) {
+        Json::Value result;
+        id_set_t& timing_deps = dep_analysis.leaking_timing_deps();
+        id_set_t& non_timing_deps = dep_analysis.leaking_non_timing_deps();
+
+        int idx = 0;
+        for (auto id : timing_deps) {
+            result["timing"][idx] = id;
+            idx++;
+        }
+
+        idx = 0;
+        for (auto id : non_timing_deps) {
+            result["non_timing"][idx] = id;
+            idx++;
+        }
+        result["module"] = mod;
+        result["field"]  = fld;
+        out[outIdx] = result;
+    } else {
+        out[outIdx]["module"] = mod;
+        out[outIdx]["field"]  = fld;
+        out[outIdx]["non_timing"] = Json::Value(Json::arrayValue);
+        out[outIdx]["timing"] = Json::Value(Json::arrayValue);
+    }
+    outIdx++;
+}
+
+
+Json::Value processJSON(Json::Value root) {
+    int outIdx = 0;
+    Json::Value out(Json::arrayValue);
+
+    for (auto s : root["signals"]) {
+        std::string mod = s["module"].asString().c_str();
+        std::string fld = s["field"].asString().c_str();
+        std::vector<std::string> fields;
+        if (fld.back() == '*') {
+            fld.pop_back();
+
+            module_map_t::iterator it = module_map.find(mod);
+            module_t* module_ds = it->second;
+
+            for (identifier_t port : module_ds->ports()) {
+                identifier_t lcase_port = port;
+                std::transform(lcase_port.begin(), lcase_port.end(),
+                               lcase_port.begin(), ::tolower);
+
+                if (lcase_port.size() >= fld.size() &&
+                    lcase_port.compare(0, fld.size(), fld) == 0) {
+                    fields.push_back(port);
+                }
+            }
+        } else {
+            fields.push_back(fld);
+        }
+
+        for (auto fld : fields) {
+            do_one_signal(mod, fld, outIdx, out);
+        }
+    }
+
+    return out;
+}
+
 int main(int argc, char **argv) {
+    bool interactive = true;
+    std::vector<std::string> sourceFiles;
+    Json::Value root;
+
     if (argc < 2) {
+        std::cout << root;
         std::cerr << "USAGE: " << argv[0] << " verilog-files";
+        std::cerr << "       " << argv[0] << " <JSON spec>";
         return 1;
+    }
+
+    if (argc == 2) {
+        // Try to parse a JSON spec
+        std::ifstream file;
+        file.open(argv[1]);
+        Json::CharReaderBuilder builder;
+        builder["collectComments"] = false;
+        std::string errs;
+        bool ok = Json::parseFromStream(builder, file, &root, &errs);
+        if (ok) {
+            interactive = false;
+            // TODO: Check JSON schema (is that a thing?)
+            for (int i = 0; i < root["sources"].size(); i++) {
+                sourceFiles.push_back(root["sources"][i].asString());
+            }
+        }
+    }
+
+    if (interactive) {
+        for (int i = 1; i < argc; i++) {
+            sourceFiles.push_back(std::string(argv[i]));
+        }
     }
 
     Message::SetMessageType("VERI-1482", VERIFIC_IGNORE);
 
     util_t::update_status("analyzing input files ... ");
 
-    for (uint32_t idx = 1; idx < argc; idx += 1) {
-        analyze_file(argv[idx]);
+    for (auto f : sourceFiles) {
+        analyze_file(f.c_str());
     }
 
     parse_modules();
+
     util_t::update_status("building def-use chains ... ");
 
     for (auto it = module_map.begin(); it != module_map.end(); it++) {
@@ -214,19 +336,11 @@ int main(int argc, char **argv) {
     util_t::clear_status();
     rl_attempted_completion_function = complete_text;
 
-    char* buffer = nullptr;
-    while ((buffer = readline(">> ")) != nullptr) {
-        if (strlen(buffer) == 0) {
-            continue;
-        } else if (strcmp(buffer, "quit") != 0) {
-            add_history(buffer);
-            process_text(buffer);
-
-            free(buffer);
-        } else {
-            free(buffer);
-            break;
-        }
+    if (interactive) {
+        do_repl();
+    } else {
+        Json::Value out = processJSON(root);
+        std::cout << out << std::endl;
     }
 
     destroy_module_map();

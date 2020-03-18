@@ -48,6 +48,20 @@ parent directory.  If not, please change the variable `VERIFIC_ROOT` in
 Halcyon accepts input as module-name.signal-name (e.g. `MulDiv.io_resp_valid`).
 Halcyon also supports tab-completion on module names and ports.
 
+### JSON I/O
+
+For non-interactive usage, Halcyon accepts a JSON file like the following:
+
+```
+{
+  "signals" : [ "modules" : "MulDiv", "field" : "io_resp_valid"],
+  "sources" : [ "/path/to/foo.v", "/path/to/bar.v"  ]
+}
+```
+
+Which directs Halcyon to analyze the sources `foo.v` and `bar.v` and check
+`MulDiv.io_resp_valid`.
+
 
 ## Implementation Details of Halcyon ##
 
