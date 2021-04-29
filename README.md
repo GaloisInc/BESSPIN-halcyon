@@ -1,4 +1,4 @@
-# Halcyon #
+# BESSPIN Halcyon #
 
 A tool for analyzing information leakage in Verilog code.
 
